@@ -2,14 +2,22 @@
 
 #include "waveguide/mesh.h"
 
+#include "core/cl/common.h"
 #include "core/cl/include.h"
 #include "core/conversions.h"
 #include "core/exceptions.h"
 
+#include "utilities/aligned/vector.h"
+#include "utilities/string_builder.h"
+
 #include <atomic>
 #include <cassert>
+#include <cmath>
 #include <functional>
 #include <iostream>
+#include <algorithm>
+#include <limits>
+#include <vector>
 
 namespace wayverb {
 namespace waveguide {
@@ -44,6 +52,8 @@ size_t run(const core::compute_context& cc,
 
     const program program{cc};
     cl::CommandQueue queue{cc.context, cc.device};
+    const auto& nodes_host = mesh.get_structure().get_condensed_nodes();
+    const auto& coefficients_host = mesh.get_structure().get_coefficients();
     const auto make_zeroed_buffer = [&] {
         auto ret = cl::Buffer{
                 cc.context, CL_MEM_READ_WRITE, sizeof(cl_float) * num_nodes};
@@ -63,12 +73,16 @@ size_t run(const core::compute_context& cc,
 
     cl::Buffer error_flag_buffer{cc.context, CL_MEM_READ_WRITE, sizeof(cl_int)};
 
-    auto boundary_buffer_1 = core::load_to_buffer(
-            cc.context, get_boundary_data<1>(mesh.get_structure()), false);
-    auto boundary_buffer_2 = core::load_to_buffer(
-            cc.context, get_boundary_data<2>(mesh.get_structure()), false);
-    auto boundary_buffer_3 = core::load_to_buffer(
-            cc.context, get_boundary_data<3>(mesh.get_structure()), false);
+    auto boundary_host_1 = get_boundary_data<1>(mesh.get_structure());
+    auto boundary_host_2 = get_boundary_data<2>(mesh.get_structure());
+    auto boundary_host_3 = get_boundary_data<3>(mesh.get_structure());
+
+    auto boundary_buffer_1 =
+            core::load_to_buffer(cc.context, boundary_host_1, false);
+    auto boundary_buffer_2 =
+            core::load_to_buffer(cc.context, boundary_host_2, false);
+    auto boundary_buffer_3 =
+            core::load_to_buffer(cc.context, boundary_host_3, false);
 
     auto kernel = program.get_kernel();
 
@@ -99,12 +113,132 @@ size_t run(const core::compute_context& cc,
         //  read out flag value
         if (const auto error_flag =
                     core::read_value<error_code>(queue, error_flag_buffer, 0)) {
+            std::cerr << "[waveguide] error_flag=" << error_flag << '\n';
+            const auto log_non_finite = [&](const char* label) {
+                const auto report = [&](const char* which,
+                                        const cl::Buffer& buffer) {
+                    auto values =
+                            core::read_from_buffer<float>(queue, buffer);
+                    const auto it = std::find_if(
+                            values.begin(), values.end(), [](float v) {
+                                return !std::isfinite(v);
+                            });
+                    if (it != values.end()) {
+                        const auto idx =
+                                static_cast<size_t>(
+                                        std::distance(values.begin(), it));
+                        const auto boundary_type =
+                                idx < nodes_host.size()
+                                        ? nodes_host[idx].boundary_type
+                                        : -1;
+                        int boundary_count = boundary_type >= 0
+                                                     ? __builtin_popcount(
+                                                               static_cast<unsigned int>(
+                                                                       boundary_type))
+                                                     : 0;
+                        std::vector<cl_uint> coefficient_indices;
+                        const auto boundary_index =
+                                idx < nodes_host.size()
+                                        ? nodes_host[idx].boundary_index
+                                        : 0u;
+                        switch (boundary_count) {
+                            case 1:
+                                if (boundary_index < boundary_host_1.size()) {
+                                    coefficient_indices.push_back(
+                                            boundary_host_1[boundary_index]
+                                                    .array[0]
+                                                    .coefficient_index);
+                                }
+                                break;
+                            case 2:
+                                if (boundary_index < boundary_host_2.size()) {
+                                    coefficient_indices.push_back(
+                                            boundary_host_2[boundary_index]
+                                                    .array[0]
+                                                    .coefficient_index);
+                                    coefficient_indices.push_back(
+                                            boundary_host_2[boundary_index]
+                                                    .array[1]
+                                                    .coefficient_index);
+                                }
+                                break;
+                            case 3:
+                                if (boundary_index < boundary_host_3.size()) {
+                                    coefficient_indices.push_back(
+                                            boundary_host_3[boundary_index]
+                                                    .array[0]
+                                                    .coefficient_index);
+                                    coefficient_indices.push_back(
+                                            boundary_host_3[boundary_index]
+                                                    .array[1]
+                                                    .coefficient_index);
+                                    coefficient_indices.push_back(
+                                            boundary_host_3[boundary_index]
+                                                    .array[2]
+                                                    .coefficient_index);
+                                }
+                                break;
+                            default: break;
+                        }
+
+                        auto dump_coeffs = [&]() {
+                            std::string result;
+                            for (size_t i = 0; i < coefficient_indices.size(); ++i) {
+                                const auto coeff_index = coefficient_indices[i];
+                                float b0 = std::numeric_limits<float>::quiet_NaN();
+                                float a0 = std::numeric_limits<float>::quiet_NaN();
+                                if (coeff_index < coefficients_host.size()) {
+                                    b0 = static_cast<float>(
+                                            coefficients_host[coeff_index].b[0]);
+                                    a0 = static_cast<float>(
+                                            coefficients_host[coeff_index].a[0]);
+                                }
+                                result += util::build_string(
+                                        "[", coeff_index, ": b0=", b0, ", a0=", a0, "]");
+                                if (i + 1 < coefficient_indices.size()) {
+                                    result += ", ";
+                                }
+                            }
+                            if (result.empty()) {
+                                result = "[none]";
+                            }
+                            return result;
+                        }();
+                        const auto locator =
+                                waveguide::compute_locator(
+                                        mesh.get_descriptor(), idx);
+                        const auto neighbors =
+                                waveguide::compute_neighbors(
+                                        mesh.get_descriptor(), idx);
+                        std::cerr << "[waveguide] " << label << " (" << which
+                                  << ") at step " << step << ", node " << idx
+                                  << ", boundary_type " << boundary_type
+                                  << " (count=" << boundary_count << ")"
+                                  << ", coeffs " << dump_coeffs
+                                  << ", locator (" << locator.x << ", "
+                                  << locator.y << ", " << locator.z << ")"
+                                  << ", boundary_index " << boundary_index
+                                  << ", neighbors [" << neighbors[0] << ", "
+                                  << neighbors[1] << ", " << neighbors[2]
+                                  << ", " << neighbors[3] << ", "
+                                  << neighbors[4] << ", " << neighbors[5]
+                                  << "]"
+                                  << ", value " << *it << '\n';
+                    }
+                };
+
+                report("current", current);
+                report("previous", previous);
+            };
+
             if (error_flag & id_inf_error) {
+                log_non_finite("INF");
                 throw core::exceptions::value_is_inf(
                         "Pressure value is inf, check filter coefficients.");
             }
 
             if (error_flag & id_nan_error) {
+                log_non_finite("NaN");
                 throw core::exceptions::value_is_nan(
                         "Pressure value is nan, check filter coefficients.");
             }

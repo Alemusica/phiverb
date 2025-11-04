@@ -5,6 +5,8 @@
 #include "waveguide/mesh_setup_program.h"
 #include "waveguide/program.h"
 
+#include "waveguide/cl/utils.h"
+
 #include "core/conversions.h"
 #include "core/scene_data_loader.h"
 #include "core/spatial_division/scene_buffers.h"
@@ -12,7 +14,10 @@
 
 #include "utilities/popcount.h"
 
+#include <cmath>
+#include <cstdlib>
 #include <iostream>
+#include <numeric>
 
 namespace wayverb {
 namespace waveguide {
@@ -57,6 +62,8 @@ mesh compute_mesh(
                 voxelised,
         float mesh_spacing,
         float speed_of_sound) {
+    const bool force_identity_coeffs =
+            std::getenv("WAYVERB_FORCE_IDENTITY_COEFFS") != nullptr;
     const auto program = setup_program{cc};
     auto queue = cl::CommandQueue{cc.context, cc.device};
 
@@ -129,11 +136,47 @@ mesh compute_mesh(
                     begin(voxelised.get_scene_data().get_surfaces()),
                     end(voxelised.get_scene_data().get_surfaces()),
                     [&](const auto& surface) {
-                        return to_impedance_coefficients(
+                        const auto make_identity_coeffs = [] {
+                            coefficients_canonical identity{};
+                            identity.b[0] = static_cast<filt_real>(1);
+                            identity.a[0] = static_cast<filt_real>(1);
+                            return identity;
+                        };
+
+                        if (force_identity_coeffs) {
+                            return make_identity_coeffs();
+                        }
+
+                        auto coeffs = to_impedance_coefficients(
                                 compute_reflectance_filter_coefficients(
                                         surface.absorption.s,
                                         1 / config::time_step(speed_of_sound,
                                                               mesh_spacing)));
+
+                        const auto sanitize = [](auto& coeff_array) {
+                            for (auto& coeff : coeff_array) {
+                                if (!std::isfinite(static_cast<double>(coeff))) {
+                                    coeff = static_cast<filt_real>(0);
+                                }
+                            }
+                        };
+
+                        sanitize(coeffs.b);
+                        sanitize(coeffs.a);
+
+                        const auto average_absorption = [&] {
+                            double sum = 0.0;
+                            for (const auto value : surface.absorption.s) {
+                                sum += value;
+                            }
+                            return sum / 8.0;
+                        }();
+
+                        if (!is_stable(coeffs.a)) {
+                            coeffs = make_identity_coeffs();
+                        }
+
+                        return coeffs;
                     }),
             std::move(boundary_data)};
 

@@ -3,20 +3,29 @@
 #include "utilities/foldl.h"
 
 #include <array>
+#include <cmath>
 
 namespace wayverb {
 namespace waveguide {
 
 coefficients_biquad get_peak_coefficients(const filter_descriptor& n) {
-    const auto A = util::decibels::db2a(n.gain / 2);
-    const auto w0 = 2.0 * M_PI * n.centre;
-    const auto cw0 = cos(w0);
-    const auto sw0 = sin(w0);
-    const auto alpha = sw0 / 2.0 * n.Q;
-    const auto a0 = 1 + alpha / A;
+    const auto to_filt = [](double v) {
+        return static_cast<filt_real>(v);
+    };
+
+    const filt_real A = to_filt(util::decibels::db2a(n.gain / 2));
+    const filt_real w0 = to_filt(2.0) * to_filt(M_PI) * to_filt(n.centre);
+    const filt_real cw0 = std::cos(w0);
+    const filt_real sw0 = std::sin(w0);
+    const filt_real alpha = (sw0 / to_filt(2.0)) * to_filt(n.Q);
+    const filt_real a0 = to_filt(1.0) + alpha / A;
     return coefficients_biquad{
-            {(1 + (alpha * A)) / a0, (-2 * cw0) / a0, (1 - alpha * A) / a0},
-            {1, (-2 * cw0) / a0, (1 - alpha / A) / a0}};
+            {(to_filt(1.0) + (alpha * A)) / a0,
+             (-to_filt(2.0) * cw0) / a0,
+             (to_filt(1.0) - alpha * A) / a0},
+            {to_filt(1.0),
+             (-to_filt(2.0) * cw0) / a0,
+             (to_filt(1.0) - alpha / A) / a0}};
 }
 
 biquad_coefficients_array get_peak_biquads_array(

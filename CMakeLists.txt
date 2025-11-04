@@ -37,6 +37,10 @@ else()
     #set(CMAKE_CXX_VISIBILITY_PRESET hidden)
     #set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
 
+    if(APPLE)
+        add_definitions(-DWAYVERB_FORCE_SINGLE_PRECISION=1)
+    endif()
+
     enable_testing()
     add_subdirectory(src)
     add_subdirectory(bin)

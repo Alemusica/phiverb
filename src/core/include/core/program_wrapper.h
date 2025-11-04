@@ -2,6 +2,9 @@
 
 #include "core/cl/common.h"
 
+#include <stdexcept>
+#include <string>
+
 namespace wayverb {
 namespace core {
 
@@ -30,8 +33,14 @@ public:
 
     template <typename... Ts>
     auto get_kernel(const char* kernel_name) const {
-        int error;
-        return cl::make_kernel<Ts...>(program, kernel_name, &error);
+        int error = CL_SUCCESS;
+        auto kernel = cl::make_kernel<Ts...>(program, kernel_name, &error);
+        if (error != CL_SUCCESS) {
+            throw std::runtime_error("Failed to create OpenCL kernel '" +
+                                     std::string{kernel_name} + "' (error " +
+                                     std::to_string(error) + ")");
+        }
+        return kernel;
     }
 
 private:

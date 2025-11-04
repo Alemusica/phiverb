@@ -20,8 +20,9 @@ namespace detail {
 template <size_t... Ix>
 constexpr auto to_raw_impedance_coefficients(
         const coefficients<sizeof...(Ix) - 1>& c, std::index_sequence<Ix...>) {
-    return coefficients_canonical{{c.a[Ix] + c.b[Ix]...},
-                                  {c.a[Ix] - c.b[Ix]...}};
+    return coefficients_canonical{
+            {static_cast<filt_real>(c.a[Ix] + c.b[Ix])...},
+            {static_cast<filt_real>(c.a[Ix] - c.b[Ix])...}};
 }
 
 template <size_t order>
@@ -36,7 +37,7 @@ auto to_impedance_coefficients(const coefficients<order>& c) {
     auto ret = detail::to_raw_impedance_coefficients(c);
 
     if (ret.a[0]) {
-        const auto norm = 1.0 / ret.a[0];
+        const auto norm = static_cast<filt_real>(1.0) / ret.a[0];
         const auto do_normalize = [&](auto& i) {
             util::for_each([&](auto& i) { i *= norm; }, i);
         };
@@ -54,8 +55,9 @@ constexpr auto make_coefficients_canonical(
         const core::filter_coefficients<sizeof...(Ix) - 1, sizeof...(Ix) - 1>&
                 coeffs,
         std::index_sequence<Ix...>) {
-    return coefficients_canonical{{std::get<Ix>(coeffs.b)...},
-                                  {std::get<Ix>(coeffs.a)...}};
+    return coefficients_canonical{
+            {static_cast<filt_real>(std::get<Ix>(coeffs.b))...},
+            {static_cast<filt_real>(std::get<Ix>(coeffs.a))...}};
 }
 
 constexpr auto make_coefficients_canonical(
@@ -71,7 +73,9 @@ constexpr auto make_coefficients_canonical(
 
 inline auto to_flat_coefficients(double absorption) {
     return to_impedance_coefficients(coefficients_canonical{
-            {core::absorption_to_pressure_reflectance(absorption)}, {1}});
+            {static_cast<filt_real>(
+                    core::absorption_to_pressure_reflectance(absorption))},
+            {static_cast<filt_real>(1)}});
 }
 
 ////////////////////////////////////////////////////////////////////////////////
