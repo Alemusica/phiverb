@@ -161,6 +161,29 @@ inline void record_nan(global int* debug_info,
     }
 }
 
+inline void record_pressure_nan(global int* debug_info,
+                                int code,
+                                uint global_index,
+                                float prev_bits,
+                                float next_bits) {
+    if (debug_info == 0) {
+        return;
+    }
+    volatile global int* flag = (volatile global int*)debug_info;
+    if (atomic_cmpxchg(flag, 0, 1) == 0) {
+        debug_info[0] = code;
+        debug_info[1] = (int)global_index;
+        debug_info[2] = 0;
+        debug_info[3] = 0;
+        debug_info[4] = 0;
+        debug_info[5] = (int)as_uint(prev_bits);
+        debug_info[6] = (int)as_uint(next_bits);
+        for (int i = 7; i < 12; ++i) {
+            debug_info[i] = 0;
+        }
+    }
+}
+
 filt_real filter_step_canonical_private(
         filt_real input,
         memory_canonical* m,
@@ -278,6 +301,9 @@ void ghost_point_pressure_update(
     }
     if (!isfinite(b0)) {
         b0 = (filt_real)1;
+    }
+    if (fabs((float)b0) < 1.0e-12f && fabs((float)a0) < 1.0e-12f) {
+        return;
     }
     filt_real filt_state = bd->filter_memory.array[0];
     if (!isfinite(filt_state)) {
@@ -482,8 +508,11 @@ GET_CURRENT_SURROUNDING_WEIGHTING_TEMPLATE(3);
         for (int i = 0; i != dimensions; ++i) {                           \
             const global boundary_data* bd_ptr = bda->array + i;          \
             const filt_real filt_state = bd_ptr->filter_memory.array[0];  \
-            sum += filt_state /                                           \
-                   boundary_coefficients[bd_ptr->coefficient_index].b[0]; \
+            const filt_real b0 =                                          \
+                    boundary_coefficients[bd_ptr->coefficient_index].b[0];\
+            if (fabs((float)b0) > 1.0e-12f) {                             \
+                sum += filt_state / b0;                                   \
+            }                                                             \
         }                                                                 \
         return courant_sq * sum;                                          \
     }
@@ -505,7 +534,11 @@ GET_FILTER_WEIGHTING_TEMPLATE(3);
         for (int i = 0; i != dimensions; ++i) {                              \
             const global coefficients_canonical* boundary =                  \
                     boundary_coefficients + bda->array[i].coefficient_index; \
-            sum += boundary->a[0] / boundary->b[0];                          \
+            const float a0 = (float)boundary->a[0];                          \
+            const float b0 = (float)boundary->b[0];                          \
+            if (fabs(b0) > 1.0e-12f) {                                       \
+                sum += a0 / b0;                                              \
+            }                                                                \
         }                                                                    \
         return sum * courant;                                                \
     }
@@ -562,11 +595,22 @@ GET_COEFF_WEIGHTING_TEMPLATE(3);
         }                                                                      \
         float ret = numerator / denom;                                         \
         if (!isfinite(ret)) {                                                  \
+            record_nan(debug_info,                                            \
+                       200 + dimensions,                                      \
+                       global_index,                                          \
+                       node.boundary_index,                                   \
+                       -1,                                                    \
+                       0,                                                     \
+                       filter_weighting,                                      \
+                       coeff_weighting,                                       \
+                       denom,                                                 \
+                       numerator,                                             \
+                       denom,                                                 \
+                       prev_pressure,                                         \
+                       ret);                                                  \
             atomic_or(error_flag, id_nan_error);                               \
             ret = 0.0f;                                                        \
         }                                                                      \
-        (void)debug_info;                                                      \
-        (void)global_index;                                                    \
         return ret;                                                            \
     }
 
@@ -811,6 +855,11 @@ kernel void condensed_waveguide(
         atomic_or(error_flag, id_inf_error);
     }
     if (isnan(next_pressure)) {
+        record_pressure_nan(debug_info,
+                            100,
+                            (uint)index,
+                            prev_pressure,
+                            next_pressure);
         atomic_or(error_flag, id_nan_error);
     }
 

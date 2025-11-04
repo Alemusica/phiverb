@@ -2,6 +2,13 @@
 
 This file tracks iterative progress while porting and validating Wayverb on Apple Silicon Macs. New entries should be appended to the top so the latest work is easiest to find.
 
+## 2025-03-10 — Coefficient sanitization & fallback
+
+- Detect all-zero or near-singular canonical coefficient sets when constructing `waveguide::vectors` and replace them with a rigid-wall fallback (`b0 = 1`, remaining taps zero); emit a warning with the number of patched entries so bad material data is visible but non-fatal.
+- Added a defensive early-out in `ghost_point_pressure_update` for the (now rare) case where both `a0` and `b0` arrive as ~0 on device, ensuring the boundary filter stays benign even if host sanitization is bypassed.
+- Updated the CPU `boundary_probe` helper to mirror the new guards, keeping host/GPU diagnostics in sync.
+- Full regression still fails because coefficient set 0 loaded from disk is empty — next action is to regenerate the surface data or confirm the neutral material mapping so we can complete the Apple Silicon smoke test.
+
 ## 2025-03-09 (late, resumed) — Dedicated boundary kernels
 
 - Added optional OpenCL stage tracing (`WAYVERB_WG_TRACE=1`) that registers callbacks on the pressure and boundary update kernels; event logs now reveal exactly which phase completes or stalls (gws printed per stage).

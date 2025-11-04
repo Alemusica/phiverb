@@ -461,9 +461,12 @@ size_t run(const core::compute_context& cc,
         //  set flag state to successful
         core::write_value(queue, error_flag_buffer, 0, id_success);
         {
-            const cl_int zero = 0;
+            const cl_int pattern = static_cast<cl_int>(0xCDCDCDCD);
             queue.enqueueFillBuffer(
-                    debug_info_buffer, zero, 0, sizeof(cl_int) * 12);
+                    debug_info_buffer,
+                    pattern,
+                    0,
+                    sizeof(cl_int) * 12);
         }
 
         //  run kernel
@@ -613,6 +616,13 @@ size_t run(const core::compute_context& cc,
             }
 
             if (error_flag & id_nan_error) {
+                auto debug_raw = core::read_from_buffer<cl_int>(
+                        queue, debug_info_buffer);
+                std::cerr << "  debug_raw[0..3]=";
+                for (int i = 0; i < 4 && i < (int)debug_raw.size(); ++i) {
+                    std::cerr << " 0x" << std::hex << debug_raw[i] << std::dec;
+                }
+                std::cerr << '\n';
                 auto debug_info =
                         core::read_from_buffer<cl_int>(queue, debug_info_buffer);
                 if (!debug_info.empty()) {
@@ -683,9 +693,12 @@ size_t run(const core::compute_context& cc,
                         return;
                     }
                     core::write_value(queue, error_flag_buffer, 0, id_success);
-                    const cl_int zero = 0;
+                    const cl_int pattern = static_cast<cl_int>(0xCDCDCDCD);
                     queue.enqueueFillBuffer(
-                            debug_info_buffer, zero, 0, sizeof(cl_int) * 12);
+                            debug_info_buffer,
+                            pattern,
+                            0,
+                            sizeof(cl_int) * 12);
                     cl::Event stage_event =
                             functor(cl::EnqueueArgs(queue, cl::NDRange(count)),
                                     previous_history,

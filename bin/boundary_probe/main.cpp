@@ -206,7 +206,7 @@ float boundary2_host(const wayverb::waveguide::mesh& mesh,
             if (coeff_index >= coefficients.size()) { continue; }
             const auto& coeff = coefficients[coeff_index];
             const float b0 = coeff.b[0];
-            if (b0 != 0.0f) {
+            if (fabs(b0) > 1.0e-12f) {
                 sum += static_cast<float>(bd.filter_memory.array[0]) / b0;
             }
         }
@@ -226,7 +226,7 @@ float boundary2_host(const wayverb::waveguide::mesh& mesh,
             if (coeff_index >= coefficients.size()) { continue; }
             const auto& coeff = coefficients[coeff_index];
             const float b0 = coeff.b[0];
-            if (b0 != 0.0f) {
+            if (fabs(b0) > 1.0e-12f) {
                 coeff_weighting += coeff.a[0] / b0;
             }
         }
@@ -248,8 +248,9 @@ float boundary2_host(const wayverb::waveguide::mesh& mesh,
             const float b0 = coeff.b[0];
             const float a0 = coeff.a[0];
             const float filt_state = static_cast<float>(bd.filter_memory.array[0]);
-            const float diff = (a0 * (prev_pressure - next_pressure)) / (b0 * courant) +
-                               (filt_state / b0);
+            const float safe_b0 = fabs(b0) > 1.0e-12f ? b0 : 1.0f;
+            const float diff = (a0 * (prev_pressure - next_pressure)) / (safe_b0 * courant) +
+                               (filt_state / safe_b0);
             const float filter_input = -diff;
             filter_step_host(filter_input, bd.filter_memory, coeff);
         }
