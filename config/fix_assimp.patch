@@ -1,0 +1,26 @@
+diff --git a/code/D3MFImporter.cpp b/code/D3MFImporter.cpp
+index 1a97168..39043f6 100644
+--- a/code/D3MFImporter.cpp
++++ b/code/D3MFImporter.cpp
+@@ -227,7 +227,7 @@ private:
+         aiVector3D vertex;
+         vertex.x = ai_strtof(xmlReader->getAttributeValue(D3MF::XmlTag::x.c_str()), nullptr);
+         vertex.y = ai_strtof(xmlReader->getAttributeValue(D3MF::XmlTag::y.c_str()), nullptr);
+-        vertex.z = ai_strtof>(xmlReader->getAttributeValue(D3MF::XmlTag::z.c_str()), nullptr);
++        vertex.z = ai_strtof(xmlReader->getAttributeValue(D3MF::XmlTag::z.c_str()), nullptr);
+ 
+         return vertex;
+     }
+diff --git a/contrib/zlib/zutil.h b/contrib/zlib/zutil.h
+index 24ab06b..c7dfca5 100644
+--- a/contrib/zlib/zutil.h
++++ b/contrib/zlib/zutil.h
+@@ -124,7 +124,7 @@ extern z_const char * const z_errmsg[10]; /* indexed by 2-zlib_error */
+ #    if defined(__MWERKS__) && __dest_os != __be_os && __dest_os != __win32_os
+ #      include <unix.h> /* for fdopen */
+ #    else
+-#      ifndef fdopen
++#      if !defined(__APPLE__) && !defined(fdopen)
+ #        define fdopen(fd,mode) NULL /* No fdopen() */
+ #      endif
+ #    endif

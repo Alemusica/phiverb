@@ -1,0 +1,17 @@
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED true)
+
+include_directories(${DEPENDENCY_INSTALL_PREFIX}/include)
+
+add_subdirectory(boundary_test)
+add_subdirectory(mic_test)
+add_subdirectory(solution_growth)
+add_subdirectory(sheaffer2014)
+add_subdirectory(waveguide_distance_test)
+add_subdirectory(siltanen2013)
+add_subdirectory(level_match)
+add_subdirectory(box)
+add_subdirectory(diffuse_decay)
+add_subdirectory(fitted_boundary)
+add_subdirectory(crackly_tunnel)
+add_subdirectory(rt60)

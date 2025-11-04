@@ -1,0 +1,22 @@
+diff --git a/include/cereal/types/tuple.hpp b/include/cereal/types/tuple.hpp
+index eb7c4dc..274a8ee 100644
+--- a/include/cereal/types/tuple.hpp
++++ b/include/cereal/types/tuple.hpp
+@@ -26,7 +26,7 @@ namespace detail
+       template <class Archive, class ... Types> inline
+       static void apply( Archive & ar, std::tuple<Types...> & tuple )
+       {
+-        serialize<Height - 1>::template apply( ar, tuple );
++        serialize<Height - 1>::template apply<Archive, Types...>( ar, tuple );
+         ar( CEREAL_NVP_(tuple_element_name<Height - 1>::c_str(),
+             std::get<Height - 1>( tuple )) );
+       }
+@@ -49,7 +49,7 @@ namespace cereal
+   template <class Archive, class ... Types> inline
+   void CEREAL_SERIALIZE_FUNCTION_NAME( Archive & ar, std::tuple<Types...> & tuple )
+   {
+-    tuple_detail::serialize<std::tuple_size<std::tuple<Types...>>::value>::template apply( ar, tuple );
++    tuple_detail::serialize<std::tuple_size<std::tuple<Types...>>::value>::template apply<Archive, Types...>( ar, tuple );
+   }
+ } // namespace cereal
+ 

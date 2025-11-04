@@ -1,0 +1,18 @@
+#pragma once
+#include "hrtf/entry.h"
+
+namespace hrtf_data {
+// Placeholder HRTF dataset used when the real IRCAM database is unavailable.
+// Provides a minimal angle/energy grid so compilation succeeds, but the
+// resulting spatialisation will be nearly silent and unsuitable for production.
+constexpr entry entries[] = {
+    {0,
+     0,
+     {{{{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}},
+       {{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}}}}},
+    {90,
+     90,
+     {{{{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}},
+       {{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}}}}},
+};
+}  // namespace hrtf_data
