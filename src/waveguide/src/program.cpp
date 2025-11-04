@@ -235,6 +235,7 @@ SurroundingPorts2 on_boundary_2(InnerNodeDirections2 ind) {
 //  we don't actually care about the pressure at the ghost point other than to
 //  calculate the boundary filter input
 void ghost_point_pressure_update(
+        uint cookie_a,
         float next_pressure,
         float prev_pressure,
         float inner_pressure,
@@ -244,8 +245,10 @@ void ghost_point_pressure_update(
         global int* debug_info,
         uint global_index,
         uint boundary_index,
-        int local_idx);
+        int local_idx,
+        uint cookie_b);
 void ghost_point_pressure_update(
+        uint cookie_a,
         float next_pressure,
         float prev_pressure,
         float inner_pressure,
@@ -255,36 +258,42 @@ void ghost_point_pressure_update(
         global int* debug_info,
         uint global_index,
         uint boundary_index,
-        int local_idx) {
+        int local_idx,
+        uint cookie_b) {
     (void)inner_pressure;
-    memory_canonical local_memory = bd->filter_memory;
-    filt_real filt_state = local_memory.array[0];
-    filt_real b0 = boundary->b[0];
+    if (cookie_a != 0x12345678u || cookie_b != 0xA5A5A5A5u) {
+        atomic_or(error_flag, id_outside_range_error);
+        if (debug_info != 0) {
+            debug_info[0] = -1;
+            debug_info[1] = (int)cookie_a;
+            debug_info[2] = (int)cookie_b;
+            debug_info[3] = (int)global_index;
+        }
+        return;
+    }
     filt_real a0 = boundary->a[0];
-
-    if (!isfinite(filt_state)) {
-        filt_state = 0;
+    filt_real b0 = boundary->b[0];
+    if (!isfinite(a0)) {
+        a0 = (filt_real)1;
     }
     if (!isfinite(b0)) {
         b0 = (filt_real)1;
     }
-    if (!isfinite(a0)) {
-        a0 = (filt_real)1;
+    filt_real filt_state = bd->filter_memory.array[0];
+    if (!isfinite(filt_state)) {
+        filt_state = 0;
     }
 
     const float delta = prev_pressure - next_pressure;
     if (delta == 0.0f && (float)filt_state == 0.0f) {
-        local_memory.array[0] = 0;
-        bd->filter_memory = local_memory;
+        bd->filter_memory.array[0] = 0;
         return;
     }
 
-    const filt_real safe_b0 = fabs(b0) > (filt_real)1e-12 ? b0 : (filt_real)1;
-    const filt_real safe_denom = safe_b0 * (filt_real)courant;
-    filt_real diff = (safe_denom != 0)
-            ? (a0 * (prev_pressure - next_pressure)) / safe_denom +
-                      (filt_state / safe_b0)
-            : (filt_state / safe_b0);
+    const float safe_b0 = fabs((float)b0) > 1.0e-12f ? (float)b0 : 1.0f;
+    const float denom = fmax(safe_b0 * (float)courant, 1.0e-12f);
+    const float inv_denom = 1.0f / denom;
+    const float diff = fma((float)a0 * delta, inv_denom, (float)filt_state / safe_b0);
     if (!isfinite(diff)) {
         atomic_or(error_flag, id_nan_error);
         record_nan(debug_info,
@@ -300,11 +309,10 @@ void ghost_point_pressure_update(
                    0.0f,
                    prev_pressure,
                    next_pressure);
-        local_memory.array[0] = (filt_real)nan((uint)0);
-        bd->filter_memory = local_memory;
+        bd->filter_memory.array[0] = (filt_real)nan((uint)0);
         return;
     }
-    filt_real filter_input = -diff;
+    const float filter_input = -diff;
     if (!isfinite(filter_input)) {
         atomic_or(error_flag, id_nan_error);
         record_nan(debug_info,
@@ -320,12 +328,17 @@ void ghost_point_pressure_update(
                    (float)filter_input,
                    prev_pressure,
                    next_pressure);
-        local_memory.array[0] = (filt_real)nan((uint)0);
-        bd->filter_memory = local_memory;
+        bd->filter_memory.array[0] = (filt_real)nan((uint)0);
         return;
     }
+    memory_canonical local_memory;
+#pragma unroll
+    for (int k = 0; k != CANONICAL_FILTER_ORDER; ++k) {
+        local_memory.array[k] = bd->filter_memory.array[k];
+    }
+
     const filt_real output =
-            filter_step_canonical_private(filter_input, &local_memory, boundary);
+            filter_step_canonical_private((filt_real)filter_input, &local_memory, boundary);
     if (!isfinite(output)) {
         atomic_or(error_flag, id_nan_error);
         record_nan(debug_info,
@@ -342,7 +355,10 @@ void ghost_point_pressure_update(
                    prev_pressure,
                    next_pressure);
     }
-    bd->filter_memory = local_memory;
+#pragma unroll
+    for (int k = 0; k != CANONICAL_FILTER_ORDER; ++k) {
+        bd->filter_memory.array[k] = local_memory.array[k];
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -464,10 +480,10 @@ GET_CURRENT_SURROUNDING_WEIGHTING_TEMPLATE(3);
             const global coefficients_canonical* boundary_coefficients) { \
         float sum = 0;                                                    \
         for (int i = 0; i != dimensions; ++i) {                           \
-            boundary_data bd = bda->array[i];                             \
-            const filt_real filt_state = bd.filter_memory.array[0];            \
+            const global boundary_data* bd_ptr = bda->array + i;          \
+            const filt_real filt_state = bd_ptr->filter_memory.array[0];  \
             sum += filt_state /                                           \
-                   boundary_coefficients[bd.coefficient_index].b[0];      \
+                   boundary_coefficients[bd_ptr->coefficient_index].b[0]; \
         }                                                                 \
         return courant_sq * sum;                                          \
     }
@@ -549,39 +565,90 @@ GET_COEFF_WEIGHTING_TEMPLATE(3);
             atomic_or(error_flag, id_nan_error);                               \
             ret = 0.0f;                                                        \
         }                                                                      \
-        for (int i = 0; i != dimensions; ++i) {                                \
-            const uint boundary_bit = boundary_bit_from_port(ind.array[i]);    \
-            const int local_idx = boundary_local_index(node.boundary_type,     \
-                                                       boundary_bit);          \
-            if (local_idx < 0 || local_idx >= dimensions) {                    \
-                atomic_or(error_flag, id_suspicious_boundary_error);           \
-                continue;                                                      \
-            }                                                                  \
-            global boundary_data* bd = bda->array + local_idx;                 \
-            const global coefficients_canonical* boundary =                    \
-                    boundary_coefficients + bd->coefficient_index;             \
-            ghost_point_pressure_update(ret,                                   \
-                                        prev_pressure,                         \
-                                        get_inner_pressure(nodes,              \
-                                                           current,            \
-                                                           locator,            \
-                                                           dim,                \
-                                                           ind.array[i],       \
-                                                           error_flag),        \
-                                        bd,                                    \
-                                        boundary,                              \
-                                        error_flag,                            \
-                                        debug_info,                            \
-                                        global_index,                          \
-                                        node.boundary_index,                   \
-                                        local_idx);                            \
-        }                                                                      \
+        (void)debug_info;                                                      \
+        (void)global_index;                                                    \
         return ret;                                                            \
     }
 
 BOUNDARY_TEMPLATE(1);
 BOUNDARY_TEMPLATE(2);
 BOUNDARY_TEMPLATE(3);
+
+////////////////////////////////////////////////////////////////////////////////
+
+#define UPDATE_BOUNDARY_KERNEL(dims_count)                                             \
+    kernel void CAT(update_boundary_, dims_count)(                                     \
+            const global float* previous_history,                                      \
+            const global float* current,                                               \
+            global float* next,                                                        \
+            const global condensed_node* nodes,                                        \
+            int3 grid_dimensions,                                                      \
+            const global uint* boundary_nodes,                                         \
+            global CAT(boundary_data_array_, dims_count) * boundary_storage,          \
+            const global coefficients_canonical* boundary_coefficients,                \
+            volatile global int* error_flag,                                           \
+            global int* debug_info) {                                                  \
+        const uint work_index = (uint)get_global_id(0);                                \
+        const uint global_index = boundary_nodes[work_index];                          \
+        const condensed_node node = nodes[global_index];                               \
+        const uint boundary_index = node.boundary_index;                               \
+        if (boundary_index != work_index) {                                            \
+            atomic_or(error_flag, id_outside_range_error);                             \
+            if (debug_info != 0) {                                                     \
+                debug_info[0] = id_outside_range_error;                                 \
+                debug_info[1] = (int)boundary_index;                                    \
+                debug_info[2] = (int)work_index;                                        \
+            }                                                                          \
+            return;                                                                    \
+        }                                                                              \
+        global CAT(boundary_data_array_, dims_count)* bdat =                           \
+                boundary_storage + boundary_index;                                     \
+        const float next_pressure = next[global_index];                                \
+        const float prev_pressure = previous_history[global_index];                    \
+        const int3 locator = to_locator(global_index, grid_dimensions);                \
+        CAT(InnerNodeDirections, dims_count) ind =                                     \
+                CAT(get_inner_node_directions_, dims_count)(node.boundary_type);       \
+        const int faces = (dims_count);                                                \
+        for (int face = 0; face != faces; ++face) {                                    \
+            const PortDirection pd = ind.array[face];                                  \
+            if (pd == (PortDirection)(-1)) {                                           \
+                continue;                                                              \
+            }                                                                          \
+            const uint boundary_bit = boundary_bit_from_port(pd);                      \
+            const int local_idx =                                                      \
+                    boundary_local_index(node.boundary_type, boundary_bit);            \
+            if (local_idx < 0 || local_idx >= faces) {                                 \
+                atomic_or(error_flag, id_suspicious_boundary_error);                   \
+                continue;                                                              \
+            }                                                                          \
+            global boundary_data* bd = bdat->array + local_idx;                        \
+            const global coefficients_canonical* boundary =                            \
+                    boundary_coefficients + bd->coefficient_index;                     \
+            const float inner_pressure =                                               \
+                    get_inner_pressure(nodes,                                          \
+                                       current,                                        \
+                                       locator,                                        \
+                                       grid_dimensions,                                \
+                                       pd,                                             \
+                                       error_flag);                                    \
+            ghost_point_pressure_update(0x12345678u,                                   \
+                                        next_pressure,                                \
+                                        prev_pressure,                                \
+                                        inner_pressure,                               \
+                                        bd,                                           \
+                                        boundary,                                     \
+                                        error_flag,                                   \
+                                        debug_info,                                   \
+                                        global_index,                                 \
+                                        boundary_index,                               \
+                                        local_idx,                                    \
+                                        0xA5A5A5A5u);                                 \
+        }                                                                              \
+    }
+
+UPDATE_BOUNDARY_KERNEL(1);
+UPDATE_BOUNDARY_KERNEL(2);
+UPDATE_BOUNDARY_KERNEL(3);
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -708,8 +775,19 @@ kernel void condensed_waveguide(
         global boundary_data_array_3* boundary_data_3,
         const global coefficients_canonical* boundary_coefficients,
         volatile global int* error_flag,
-        global int* debug_info) {
+        global int* debug_info,
+        const uint num_prev) {
     const size_t index = get_global_id(0);
+
+    if (index >= num_prev) {
+        atomic_or(error_flag, id_outside_range_error);
+        if (debug_info != 0) {
+            debug_info[0] = id_outside_range_error;
+            debug_info[1] = (int)index;
+            debug_info[2] = (int)num_prev;
+        }
+        return;
+    }
 
     const condensed_node node = nodes[index];
     const int3 locator = to_locator(index, dimensions);
@@ -770,6 +848,13 @@ kernel void layout_probe(__global layout_info_t* out_info) {
     info.off_b3_data2 = WAYVERB_OFFSET_OF(boundary_data_array_3, array[2]);
 
     *out_info = info;
+}
+
+kernel void probe_previous(
+        const global float* previous, uint probe_index, global float* out) {
+    if (get_global_id(0) == 0) {
+        out[0] = previous[probe_index];
+    }
 }
 
 )";

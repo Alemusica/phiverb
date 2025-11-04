@@ -34,6 +34,9 @@ public:
     const util::aligned::vector<boundary_index_array<n>>& get_boundary_indices()
             const;
 
+    template <size_t n>
+    const util::aligned::vector<cl_uint>& get_boundary_node_indices() const;
+
     const util::aligned::vector<condensed_node>& get_condensed_nodes() const;
     const util::aligned::vector<coefficients_canonical>& get_coefficients()
             const;
@@ -45,6 +48,9 @@ private:
     util::aligned::vector<condensed_node> condensed_nodes_;
     util::aligned::vector<coefficients_canonical> coefficients_;
     boundary_index_data boundary_index_data_;
+    util::aligned::vector<cl_uint> boundary_nodes_1_;
+    util::aligned::vector<cl_uint> boundary_nodes_2_;
+    util::aligned::vector<cl_uint> boundary_nodes_3_;
 };
 
 template <>
@@ -61,6 +67,22 @@ template <>
 inline const util::aligned::vector<boundary_index_array<3>>&
 vectors::get_boundary_indices<3>() const {
     return boundary_index_data_.b3;
+}
+
+template <>
+inline const util::aligned::vector<cl_uint>&
+vectors::get_boundary_node_indices<1>() const {
+    return boundary_nodes_1_;
+}
+template <>
+inline const util::aligned::vector<cl_uint>&
+vectors::get_boundary_node_indices<2>() const {
+    return boundary_nodes_2_;
+}
+template <>
+inline const util::aligned::vector<cl_uint>&
+vectors::get_boundary_node_indices<3>() const {
+    return boundary_nodes_3_;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

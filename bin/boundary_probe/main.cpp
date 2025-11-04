@@ -132,6 +132,33 @@ float filter_step_host(float input,
     return output;
 }
 
+float filter_step_host(float input,
+                       wayverb::waveguide::memory_canonical& memory,
+                       const wayverb::waveguide::coefficients_canonical& coeffs) {
+    constexpr auto order = static_cast<int>(
+            wayverb::waveguide::memory_canonical::order);
+    const auto safe_mul = [](float coeff, float value) {
+        return coeff == 0.0f ? 0.0f : coeff * value;
+    };
+
+    const float a0 = static_cast<float>(coeffs.a[0]);
+    const float b0 = static_cast<float>(coeffs.b[0]);
+    const float output = (input * b0 + static_cast<float>(memory.array[0])) / a0;
+    for (int i = 0; i != order - 1; ++i) {
+        const float b = safe_mul(static_cast<float>(coeffs.b[i + 1]), input);
+        const float a = safe_mul(static_cast<float>(coeffs.a[i + 1]), output);
+        memory.array[i] = static_cast<wayverb::waveguide::filt_real>(
+                b - a + static_cast<float>(memory.array[i + 1]));
+    }
+    const float b_last = safe_mul(
+            static_cast<float>(coeffs.b[order]), input);
+    const float a_last = safe_mul(
+            static_cast<float>(coeffs.a[order]), output);
+    memory.array[order - 1] =
+            static_cast<wayverb::waveguide::filt_real>(b_last - a_last);
+    return output;
+}
+
 float boundary2_host(const wayverb::waveguide::mesh& mesh,
                      size_t node_index,
                      const std::vector<float>& current,

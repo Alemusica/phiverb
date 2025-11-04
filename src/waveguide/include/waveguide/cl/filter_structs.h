@@ -3,6 +3,8 @@
 #include "core/cl/representation.h"
 #include "core/cl/traits.h"
 
+#include <algorithm>
+
 namespace wayverb {
 namespace waveguide {
 
@@ -13,7 +15,10 @@ namespace waveguide {
 constexpr size_t biquad_order{2};
 constexpr size_t biquad_sections{3};
 
-////////////////////////////////////////////////////////////////////////////////
+constexpr size_t canonical_filter_order{biquad_order * biquad_sections};
+constexpr size_t canonical_filter_storage{canonical_filter_order + 2};
+constexpr size_t canonical_coeff_order{biquad_order * biquad_sections};
+constexpr size_t canonical_coeff_storage{canonical_coeff_order + 2};
 
 #if defined(WAYVERB_FORCE_SINGLE_PRECISION) && WAYVERB_FORCE_SINGLE_PRECISION
 using filt_real = cl_float;
@@ -68,10 +73,57 @@ using memory_biquad = memory<biquad_order>;
 
 using coefficients_biquad = coefficients<biquad_order>;
 
-using memory_canonical = memory<memory_biquad::order * biquad_sections>;
+struct alignas(1 << 5) memory_canonical final {
+    static constexpr size_t order = canonical_filter_order;
+    static constexpr size_t storage_size = canonical_filter_storage;
+    filt_real array[storage_size]{};
 
-using coefficients_canonical =
-        coefficients<coefficients_biquad::order * biquad_sections>;
+    memory_canonical() = default;
+};
+
+struct alignas(1 << 6) coefficients_canonical final {
+    static constexpr auto order = canonical_coeff_order;
+    static constexpr auto storage_size = canonical_coeff_storage;
+    filt_real b[storage_size]{};
+    filt_real a[storage_size]{};
+
+    coefficients_canonical() = default;
+};
+
+static_assert(sizeof(memory_canonical) ==
+                      memory_canonical::storage_size * sizeof(filt_real),
+              "memory_canonical size mismatch");
+static_assert(sizeof(coefficients_canonical) ==
+                      coefficients_canonical::storage_size * sizeof(filt_real) *
+                              2,
+              "coefficients_canonical size mismatch");
+
+inline bool operator==(const memory_canonical& a, const memory_canonical& b) {
+    return std::equal(
+            std::begin(a.array), std::begin(a.array) + memory_canonical::order, std::begin(b.array));
+}
+
+inline bool operator!=(const memory_canonical& a, const memory_canonical& b) {
+    return !(a == b);
+}
+
+inline bool operator==(const coefficients_canonical& a,
+                       const coefficients_canonical& b) {
+    return std::equal(std::begin(a.a),
+                      std::begin(a.a) + coefficients_canonical::order + 1,
+                      std::begin(b.a)) &&
+           std::equal(std::begin(a.b),
+                      std::begin(a.b) + coefficients_canonical::order + 1,
+                      std::begin(b.b));
+}
+
+inline bool operator!=(const coefficients_canonical& a,
+                       const coefficients_canonical& b) {
+    return !(a == b);
+}
+
+using memory_6 = memory_canonical;
+using coefficients_6 = coefficients_canonical;
 
 ////////////////////////////////////////////////////////////////////////////////
 

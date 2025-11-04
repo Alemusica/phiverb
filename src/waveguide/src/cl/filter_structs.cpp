@@ -34,33 +34,28 @@ typedef coefficients_)" +
 
 const std::string core::cl_representation<waveguide::memory_canonical>::value{
         R"(
-typedef struct __attribute__((aligned(8))) {
+typedef struct __attribute__((aligned(32))) {
     filt_real array[)" +
-        std::to_string(waveguide::memory_canonical::order) + R"(];
-} memory_)" +
-        std::to_string(waveguide::memory_canonical::order) + R"(;
+        std::to_string(waveguide::memory_canonical::storage_size) + R"(];
+} memory_canonical;
 
-typedef memory_)" +
-        std::to_string(waveguide::memory_canonical::order) +
-        R"( memory_canonical;
+typedef memory_canonical memory_6;
+
 )"};
 
 const std::string
         core::cl_representation<waveguide::coefficients_canonical>::value{
                 R"(
-typedef struct __attribute__((aligned(8))) {
+typedef struct __attribute__((aligned(64))) {
     filt_real b[)" +
-                std::to_string(waveguide::coefficients_canonical::order + 1) +
+                std::to_string(waveguide::coefficients_canonical::order + 2) +
                 R"(];
     filt_real a[)" +
-                std::to_string(waveguide::coefficients_canonical::order + 1) +
+                std::to_string(waveguide::coefficients_canonical::order + 2) +
                 R"(];
-} coefficients_)" +
-                std::to_string(waveguide::coefficients_canonical::order) + R"(;
+} coefficients_canonical;
 
-typedef coefficients_)" +
-                std::to_string(waveguide::coefficients_canonical::order) +
-                R"( coefficients_canonical;
+typedef coefficients_canonical coefficients_6;
 )"};
 
 }  // namespace wayverb

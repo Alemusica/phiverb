@@ -14,6 +14,8 @@
 #include "utilities/for_each.h"
 #include "utilities/map.h"
 
+#include <algorithm>
+
 namespace wayverb {
 namespace waveguide {
 namespace detail {
@@ -46,6 +48,17 @@ auto to_impedance_coefficients(const coefficients<order>& c) {
     }
 
     return ret;
+}
+
+inline auto to_impedance_coefficients(const coefficients_canonical& c) {
+    coefficients<coefficients_canonical::order> base{};
+    std::copy(std::begin(c.b),
+              std::begin(c.b) + coefficients_canonical::order + 1,
+              base.b);
+    std::copy(std::begin(c.a),
+              std::begin(c.a) + coefficients_canonical::order + 1,
+              base.a);
+    return to_impedance_coefficients(base);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

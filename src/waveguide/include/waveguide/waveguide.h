@@ -21,6 +21,8 @@
 #include <optional>
 #include <cstdlib>
 #include <string>
+#include <cstdio>
+#include <memory>
 
 namespace wayverb {
 namespace waveguide {
@@ -75,6 +77,9 @@ size_t run(const core::compute_context& cc,
 
     auto previous = make_zeroed_buffer();
     auto current = make_zeroed_buffer();
+    auto previous_history = make_zeroed_buffer();
+
+    const cl_uint num_prev = static_cast<cl_uint>(num_nodes);
 
     const auto node_buffer = core::load_to_buffer(
             cc.context, mesh.get_structure().get_condensed_nodes(), true);
@@ -90,6 +95,13 @@ size_t run(const core::compute_context& cc,
     auto boundary_host_2 = get_boundary_data<2>(mesh.get_structure());
     auto boundary_host_3 = get_boundary_data<3>(mesh.get_structure());
 
+    auto boundary_nodes_host_1 =
+            mesh.get_structure().get_boundary_node_indices<1>();
+    auto boundary_nodes_host_2 =
+            mesh.get_structure().get_boundary_node_indices<2>();
+    auto boundary_nodes_host_3 =
+            mesh.get_structure().get_boundary_node_indices<3>();
+
     auto boundary_buffer_1 =
             core::load_to_buffer(cc.context, boundary_host_1, false);
     auto boundary_buffer_2 =
@@ -97,16 +109,89 @@ size_t run(const core::compute_context& cc,
     auto boundary_buffer_3 =
             core::load_to_buffer(cc.context, boundary_host_3, false);
 
-    auto kernel = program.get_kernel();
+    auto boundary_nodes_buffer_1 =
+            core::load_to_buffer(cc.context, boundary_nodes_host_1, true);
+    auto boundary_nodes_buffer_2 =
+            core::load_to_buffer(cc.context, boundary_nodes_host_2, true);
+    auto boundary_nodes_buffer_3 =
+            core::load_to_buffer(cc.context, boundary_nodes_host_3, true);
 
+    auto kernel = program.get_kernel();
+    auto update_boundary_1_kernel = program.get_update_boundary_1_kernel();
+    auto update_boundary_2_kernel = program.get_update_boundary_2_kernel();
+    auto update_boundary_3_kernel = program.get_update_boundary_3_kernel();
+    const bool trace_enabled = std::getenv("WAYVERB_WG_TRACE") != nullptr;
+    struct stage_trace_payload {
+        std::string name;
+        size_t global_work_size{};
+    };
+    struct stage_trace_logger {
+        static void CL_CALLBACK on_complete(cl_event,
+                                             cl_int status,
+                                             void* user_data) {
+            std::unique_ptr<stage_trace_payload> payload{
+                    static_cast<stage_trace_payload*>(user_data)};
+            if (!payload) {
+                return;
+            }
+            std::fprintf(stderr,
+                         "[waveguide][trace] stage '%s' complete "
+                         "(status=%d, gws=%zu)\n",
+                         payload->name.c_str(),
+                         status,
+                         payload->global_work_size);
+        }
+    };
+    auto attach_trace = [&](const char* name,
+                            size_t global_work_size,
+                            cl::Event& event) {
+        if (!trace_enabled || event() == nullptr) {
+            return;
+        }
+        auto payload = std::make_unique<stage_trace_payload>();
+        payload->name = name;
+        payload->global_work_size = global_work_size;
+        auto raw = payload.release();
+        const cl_int err =
+                event.setCallback(CL_COMPLETE,
+                                  &stage_trace_logger::on_complete,
+                                  raw);
+        if (err != CL_SUCCESS) {
+            delete raw;
+            std::fprintf(stderr,
+                         "[waveguide][trace] setCallback failed (%d) for %s\n",
+                         err,
+                         name);
+        }
+    };
+
+    const char* max_steps_env = std::getenv("WAYVERB_MAX_STEPS");
+    const size_t max_steps = max_steps_env != nullptr
+            ? static_cast<size_t>(std::strtoull(max_steps_env, nullptr, 10))
+            : std::numeric_limits<size_t>::max();
     //  run
     auto step = 0u;
 
     //  The preprocessor returns 'true' while it should be run.
     //  It also updates the mesh with new pressure values.
-    for (; pre(queue, current, step) && keep_going; ++step) {
+    for (; pre(queue, current, step) && keep_going && step < max_steps;
+         ++step) {
+        queue.enqueueCopyBuffer(
+                previous, previous_history, 0, 0, sizeof(cl_float) * num_nodes);
         if (debug_node && step == 0) {
             const auto idx = *debug_node;
+            auto probe_prev_kernel = program.get_probe_previous_kernel();
+            cl::Buffer probe_prev_output{
+                    cc.context, CL_MEM_WRITE_ONLY, sizeof(cl_float)};
+            probe_prev_kernel(cl::EnqueueArgs{queue, cl::NDRange{1}},
+                               previous,
+                               static_cast<cl_uint>(idx),
+                               probe_prev_output);
+            queue.finish();
+            const auto probed =
+                    core::read_value<float>(queue, probe_prev_output, 0);
+            std::cerr << "[waveguide] DEBUG probe-prev node " << idx
+                      << " value=" << probed << '\n';
             const auto locator = waveguide::compute_locator(
                     mesh.get_descriptor(), idx);
             const auto neighbors =
@@ -115,6 +200,9 @@ size_t run(const core::compute_context& cc,
             const auto previous_val = core::read_value<float>(queue, previous, idx);
             const auto boundary_type_value = nodes_host[idx].boundary_type;
             const auto boundary_index = nodes_host[idx].boundary_index;
+            const int boundary_faces = __builtin_popcount(
+                    static_cast<unsigned int>(
+                            boundary_type_value & ~id_inside));
             std::cerr << "[waveguide] DEBUG pre-step node " << idx
                       << " locator(" << locator.x << ", " << locator.y
                       << ", " << locator.z << ")"
@@ -126,6 +214,77 @@ size_t run(const core::compute_context& cc,
                       << neighbors[1] << ", " << neighbors[2] << ", "
                       << neighbors[3] << ", " << neighbors[4] << ", "
                       << neighbors[5] << "]\n";
+            std::cout << "  boundary_index=" << boundary_index
+                      << " popcount(excl inside)=" << boundary_faces << '\n';
+            std::cout << "  boundary_data sizes: b1=" << boundary_host_1.size()
+                      << " b2=" << boundary_host_2.size()
+                      << " b3=" << boundary_host_3.size() << '\n';
+            if (boundary_faces == 3 && boundary_index < boundary_host_3.size()) {
+                const auto& tri = boundary_host_3[boundary_index];
+                using tri_type = std::decay_t<decltype(tri)>;
+                for (size_t i = 0; i < tri_type::DIMENSIONS; ++i) {
+                    const auto& bd = tri.array[i];
+                    std::cout << "    tri[" << i
+                              << "] coeff_index=" << bd.coefficient_index
+                              << " memory[0]=" << bd.filter_memory.array[0]
+                              << " memory[1]=" << bd.filter_memory.array[1]
+                              << '\n';
+                    if (bd.coefficient_index <
+                        mesh.get_structure().get_coefficients().size()) {
+                        const auto& coeff =
+                                mesh.get_structure().get_coefficients()
+                                        [bd.coefficient_index];
+                        std::cout << "      coeff a0=" << coeff.a[0]
+                                  << " b0=" << coeff.b[0] << '\n';
+                    } else {
+                        std::cout << "      coeff index out of range (size="
+                                  << mesh.get_structure()
+                                             .get_coefficients()
+                                             .size()
+                                  << ")\n";
+                    }
+                }
+            }
+            if (boundary_faces == 2 && boundary_index < boundary_host_2.size()) {
+                const auto& edge = boundary_host_2[boundary_index];
+                using edge_type = std::decay_t<decltype(edge)>;
+                for (size_t i = 0; i < edge_type::DIMENSIONS; ++i) {
+                    const auto& bd = edge.array[i];
+                    std::cout << "    edge[" << i
+                              << "] coeff_index=" << bd.coefficient_index
+                              << " memory[0]=" << bd.filter_memory.array[0]
+                              << " memory[1]=" << bd.filter_memory.array[1]
+                              << '\n';
+                    if (bd.coefficient_index <
+                        mesh.get_structure().get_coefficients().size()) {
+                        const auto& coeff =
+                                mesh.get_structure().get_coefficients()
+                                        [bd.coefficient_index];
+                        std::cout << "      coeff a0=" << coeff.a[0]
+                                  << " b0=" << coeff.b[0] << '\n';
+                    }
+                }
+            }
+            if (boundary_faces == 2 && boundary_index < boundary_host_2.size()) {
+                const auto& edge = boundary_host_2[boundary_index];
+                using edge_type = std::decay_t<decltype(edge)>;
+                for (size_t i = 0; i < edge_type::DIMENSIONS; ++i) {
+                    const auto& bd = edge.array[i];
+                    std::cout << "    edge[" << i
+                              << "] coeff_index=" << bd.coefficient_index
+                              << " memory[0]=" << bd.filter_memory.array[0]
+                              << " memory[1]=" << bd.filter_memory.array[1]
+                              << '\n';
+                    if (bd.coefficient_index <
+                        mesh.get_structure().get_coefficients().size()) {
+                        const auto& coeff =
+                                mesh.get_structure().get_coefficients()
+                                        [bd.coefficient_index];
+                        std::cout << "      coeff a0=" << coeff.a[0]
+                                  << " b0=" << coeff.b[0] << '\n';
+                    }
+                }
+            }
             for (auto neighbor : neighbors) {
                 if (neighbor != mesh_descriptor::no_neighbor) {
                     const auto neighbor_val =
@@ -308,26 +467,39 @@ size_t run(const core::compute_context& cc,
         }
 
         //  run kernel
-        kernel(cl::EnqueueArgs(queue,
-                               cl::NDRange(mesh.get_structure()
-                                                   .get_condensed_nodes()
-                                                   .size())),
-               previous,
-               current,
-               node_buffer,
-               mesh.get_descriptor().dimensions,
-               boundary_buffer_1,
-               boundary_buffer_2,
-               boundary_buffer_3,
-               boundary_coefficients_buffer,
-               error_flag_buffer,
-               debug_info_buffer);
+        cl::Event pressure_event = kernel(
+                cl::EnqueueArgs(queue,
+                                cl::NDRange(mesh.get_structure()
+                                                    .get_condensed_nodes()
+                                                    .size())),
+                previous,
+                current,
+                node_buffer,
+                mesh.get_descriptor().dimensions,
+                boundary_buffer_1,
+                boundary_buffer_2,
+                boundary_buffer_3,
+                boundary_coefficients_buffer,
+                error_flag_buffer,
+                debug_info_buffer,
+                num_prev);
+        attach_trace("pressure",
+                     mesh.get_structure().get_condensed_nodes().size(),
+                     pressure_event);
+        if (pressure_event() != nullptr) {
+            pressure_event.wait();
+        } else {
+            queue.finish();
+        }
 
-        //  read out flag value
-        if (const auto error_flag =
-                    core::read_value<error_code>(queue, error_flag_buffer, 0)) {
-            std::cerr << "[waveguide] error_flag=" << error_flag << '\n';
-            const auto log_non_finite = [&](const char* label) {
+        auto check_error = [&](const char* stage) {
+            if (const auto error_flag =
+                        core::read_value<error_code>(queue,
+                                                     error_flag_buffer,
+                                                     0)) {
+                std::cerr << "[waveguide][" << stage
+                          << "] error_flag=" << error_flag << '\n';
+                const auto log_non_finite = [&](const char* label) {
                 const auto report = [&](const char* which,
                                         const cl::Buffer& buffer) {
                     auto values =
@@ -431,7 +603,7 @@ size_t run(const core::compute_context& cc,
                 };
 
                 report("current", current);
-                report("previous", previous);
+                        report("previous", previous);
             };
 
             if (error_flag & id_inf_error) {
@@ -496,7 +668,60 @@ size_t run(const core::compute_context& cc,
             if (error_flag & id_suspicious_boundary_error) {
                 throw std::runtime_error("Suspicious boundary read.");
             }
-        }
+            }
+        };
+
+        check_error("pressure");
+
+        const auto run_boundary_update =
+                [&](auto& functor,
+                    auto& boundary_buffer,
+                    const cl::Buffer& node_map,
+                    size_t count,
+                    const char* stage_name) {
+                    if (count == 0) {
+                        return;
+                    }
+                    core::write_value(queue, error_flag_buffer, 0, id_success);
+                    const cl_int zero = 0;
+                    queue.enqueueFillBuffer(
+                            debug_info_buffer, zero, 0, sizeof(cl_int) * 12);
+                    cl::Event stage_event =
+                            functor(cl::EnqueueArgs(queue, cl::NDRange(count)),
+                                    previous_history,
+                                    current,
+                                    previous,
+                                    node_buffer,
+                                    mesh.get_descriptor().dimensions,
+                                    node_map,
+                                    boundary_buffer,
+                                    boundary_coefficients_buffer,
+                                    error_flag_buffer,
+                                    debug_info_buffer);
+                    attach_trace(stage_name, count, stage_event);
+                    if (stage_event() != nullptr) {
+                        stage_event.wait();
+                    } else {
+                        queue.finish();
+                    }
+                    check_error(stage_name);
+                };
+
+        run_boundary_update(update_boundary_3_kernel,
+                            boundary_buffer_3,
+                            boundary_nodes_buffer_3,
+                            boundary_host_3.size(),
+                            "boundary_3");
+        run_boundary_update(update_boundary_2_kernel,
+                            boundary_buffer_2,
+                            boundary_nodes_buffer_2,
+                            boundary_host_2.size(),
+                            "boundary_2");
+        run_boundary_update(update_boundary_1_kernel,
+                            boundary_buffer_1,
+                            boundary_nodes_buffer_1,
+                            boundary_host_1.size(),
+                            "boundary_1");
 
         post(queue, current, step);
 

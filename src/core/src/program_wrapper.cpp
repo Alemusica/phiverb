@@ -34,7 +34,21 @@ program_wrapper::program_wrapper(
 }
 
 void program_wrapper::build(const cl::Device& device) const {
-    program.build({device}, "-Werror");
+    try {
+        program.build({device}, "-Werror");
+    } catch (const cl::Error& e) {
+        if (e.err() == CL_BUILD_PROGRAM_FAILURE) {
+            try {
+                const auto log =
+                        program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(device);
+                std::cerr << "[OpenCL] build log:\n"
+                          << log << std::endl;
+            } catch (...) {
+                std::cerr << "[OpenCL] failed to fetch build log\n";
+            }
+        }
+        throw;
+    }
 }
 
 cl::Device program_wrapper::get_device() const { return device; }

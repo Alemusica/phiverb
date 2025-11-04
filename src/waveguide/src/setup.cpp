@@ -24,6 +24,23 @@ vectors::vectors(util::aligned::vector<condensed_node> nodes,
     throw_if_mismatch(is_boundary<2>, boundary_index_data_.b2.size());
     throw_if_mismatch(is_boundary<3>, boundary_index_data_.b3.size());
 #endif
+
+    boundary_nodes_1_.resize(boundary_index_data_.b1.size());
+    boundary_nodes_2_.resize(boundary_index_data_.b2.size());
+    boundary_nodes_3_.resize(boundary_index_data_.b3.size());
+
+    for (cl_uint idx = 0; idx < condensed_nodes_.size(); ++idx) {
+        const auto& node = condensed_nodes_[idx];
+        if (is_boundary<1>(node.boundary_type)) {
+            boundary_nodes_1_[node.boundary_index] = idx;
+        }
+        if (is_boundary<2>(node.boundary_type)) {
+            boundary_nodes_2_[node.boundary_index] = idx;
+        }
+        if (is_boundary<3>(node.boundary_type)) {
+            boundary_nodes_3_[node.boundary_index] = idx;
+        }
+    }
 }
 
 const util::aligned::vector<condensed_node>& vectors::get_condensed_nodes()

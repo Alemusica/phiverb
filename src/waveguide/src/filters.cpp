@@ -2,6 +2,7 @@
 
 #include "utilities/foldl.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 
@@ -34,9 +35,18 @@ biquad_coefficients_array get_peak_biquads_array(
 }
 
 coefficients_canonical convolve(const biquad_coefficients_array& a) {
-    return util::foldl(
+    const auto accumulated = util::foldl(
             [](const auto& i, const auto& j) { return convolve(i, j); },
             a.array);
+
+    coefficients_canonical result{};
+    std::copy(std::begin(accumulated.b),
+              std::begin(accumulated.b) + coefficients_canonical::order + 1,
+              result.b);
+    std::copy(std::begin(accumulated.a),
+              std::begin(accumulated.a) + coefficients_canonical::order + 1,
+              result.a);
+    return result;
 }
 
 }  // namespace waveguide

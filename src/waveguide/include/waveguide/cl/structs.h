@@ -35,9 +35,10 @@ inline bool operator!=(const condensed_node& a, const condensed_node& b) {
 /// Stores filter coefficients for a single high-order filter, and an index
 /// into an array of filter parameters which describe the filter being
 /// modelled.
-struct alignas(1 << 3) boundary_data final {
+struct alignas(1 << 5) boundary_data final {
     memory_canonical filter_memory{};
     cl_uint coefficient_index{};
+    cl_uint _pad[7]{};  // ensures 64-byte stride regardless of precision
 };
 
 inline bool operator==(const boundary_data& a, const boundary_data& b) {
@@ -52,7 +53,7 @@ inline bool operator!=(const boundary_data& a, const boundary_data& b) {
 ////////////////////////////////////////////////////////////////////////////////
 
 template <size_t D>
-struct alignas(1 << 3) boundary_data_array final {
+struct alignas(1 << 5) boundary_data_array final {
     static constexpr auto DIMENSIONS = D;
     boundary_data array[DIMENSIONS]{};
 };
@@ -73,6 +74,7 @@ using boundary_data_array_1 = boundary_data_array<1>;
 using boundary_data_array_2 = boundary_data_array<2>;
 using boundary_data_array_3 = boundary_data_array<3>;
 
+static_assert(sizeof(boundary_data) == 64, "boundary_data must be 64 bytes");
 }  // namespace waveguide
 
 template <>
@@ -102,9 +104,10 @@ typedef struct {
 template <>
 struct core::cl_representation<waveguide::boundary_data> final {
     static constexpr auto value = R"(
-typedef struct __attribute__((aligned(8))) {
+typedef struct __attribute__((aligned(32))) {
     memory_canonical filter_memory;
     uint coefficient_index;
+    uint _pad[7];
 } boundary_data;
 )";
 };
@@ -112,21 +115,21 @@ typedef struct __attribute__((aligned(8))) {
 template <>
 struct core::cl_representation<waveguide::boundary_data_array_1> final {
     static constexpr auto value = R"(
-typedef struct __attribute__((aligned(8))) { boundary_data array[1]; } boundary_data_array_1;
+typedef struct __attribute__((aligned(32))) { boundary_data array[1]; } boundary_data_array_1;
 )";
 };
 
 template <>
 struct core::cl_representation<waveguide::boundary_data_array_2> final {
     static constexpr auto value = R"(
-typedef struct __attribute__((aligned(8))) { boundary_data array[2]; } boundary_data_array_2;
+typedef struct __attribute__((aligned(32))) { boundary_data array[2]; } boundary_data_array_2;
 )";
 };
 
 template <>
 struct core::cl_representation<waveguide::boundary_data_array_3> final {
     static constexpr auto value = R"(
-typedef struct __attribute__((aligned(8))) { boundary_data array[3]; } boundary_data_array_3;
+typedef struct __attribute__((aligned(32))) { boundary_data array[3]; } boundary_data_array_3;
 )";
 };
 
