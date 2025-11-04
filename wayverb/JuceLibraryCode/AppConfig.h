@@ -18,6 +18,10 @@
 // [BEGIN_USER_CODE_SECTION]
 
 // (You can add your own code in this section, and the Projucer will not overwrite it)
+#define WAYVERB_FORCE_SINGLE_PRECISION 1
+#if defined(__arm64__) || defined(__aarch64__)
+#define JUCE_NO_INLINE_ASM 1
+#endif
 
 // [END_USER_CODE_SECTION]
 

@@ -7,6 +7,10 @@
 
 #include "core/serialize/surface.h"
 
+#if JUCE_MAC
+#include "metal/MetalSample.h"
+#endif
+
 #include <fstream>
 #include <memory>
 
@@ -52,6 +56,13 @@ public:
 
         MenuBarModel::setMacMainMenu(&main_menu_bar_model_, nullptr);
         main_menu_bar_model_.menuItemsChanged();
+
+#if JUCE_MAC
+        if (!wayverb::metal::run_sample_kernel()) {
+            juce::Logger::writeToLog(
+                    "Metal sample kernel failed; continuing with OpenCL backend.");
+        }
+#endif
 
         show_hide_load_window();
     }

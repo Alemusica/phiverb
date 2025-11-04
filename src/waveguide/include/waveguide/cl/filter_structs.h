@@ -6,12 +6,20 @@
 namespace wayverb {
 namespace waveguide {
 
+#ifndef WAYVERB_FORCE_SINGLE_PRECISION
+#define WAYVERB_FORCE_SINGLE_PRECISION 0
+#endif
+
 constexpr size_t biquad_order{2};
 constexpr size_t biquad_sections{3};
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#if defined(WAYVERB_FORCE_SINGLE_PRECISION) && WAYVERB_FORCE_SINGLE_PRECISION
+using filt_real = cl_float;
+#else
 using filt_real = cl_double;
+#endif
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -83,9 +91,15 @@ struct alignas(1 << 3) biquad_coefficients_array final {
 
 template <>
 struct core::cl_representation<waveguide::filt_real> final {
+#if defined(WAYVERB_FORCE_SINGLE_PRECISION) && WAYVERB_FORCE_SINGLE_PRECISION
+    static constexpr auto value = R"(
+typedef float filt_real;
+)";
+#else
     static constexpr auto value = R"(
 typedef double filt_real;
 )";
+#endif
 };
 
 template <>
