@@ -16,6 +16,7 @@
 #include "utilities/range.h"
 
 #include "waveguide/mesh.h"
+#include "waveguide/setup.h"
 #include "waveguide/simulation_parameters.h"
 
 #include <chrono>
@@ -77,6 +78,26 @@ void log_mesh_summary(const wayverb::combined::engine& engine) {
               << "  spacing     : " << spacing << " m\n";
 }
 
+void validate_scene(const wayverb::combined::engine& engine,
+                    const glm::vec3& source,
+                    const glm::vec3& receiver) {
+    const auto distance = glm::length(source - receiver);
+    if (distance < 1.0e-3f) {
+        throw std::runtime_error{
+                "Source and receiver coincide; adjust positions before running."};
+    }
+
+    const auto& nodes = engine.get_voxels_and_mesh().mesh.get_structure().get_condensed_nodes();
+    const auto inside = std::count_if(
+            nodes.begin(), nodes.end(), [](const auto& node) {
+                return wayverb::waveguide::is_inside(node);
+            });
+    if (inside == 0) {
+        throw std::runtime_error{
+                "Mesh sanity check failed: no inside nodes detected. Verify geometry is watertight and correctly scaled."};
+    }
+}
+
 regression_result run_regression(const std::string& scene_path) {
     const auto scene_data = load_scene(scene_path);
     const auto aabb = wayverb::core::geo::compute_aabb(scene_data.get_vertices());
@@ -101,6 +122,7 @@ regression_result run_regression(const std::string& scene_path) {
             wayverb::raytracer::simulation_parameters{rays, image_sources},
             wayverb::combined::make_waveguide_ptr(waveguide_params)};
 
+    validate_scene(engine, source, receiver);
     log_mesh_summary(engine);
 
     util::progress_bar progress{std::cout};

@@ -17,7 +17,10 @@
 #include <iostream>
 #include <algorithm>
 #include <limits>
-#include <vector>
+#include <type_traits>
+#include <optional>
+#include <cstdlib>
+#include <string>
 
 namespace wayverb {
 namespace waveguide {
@@ -54,6 +57,14 @@ size_t run(const core::compute_context& cc,
     cl::CommandQueue queue{cc.context, cc.device};
     const auto& nodes_host = mesh.get_structure().get_condensed_nodes();
     const auto& coefficients_host = mesh.get_structure().get_coefficients();
+    std::optional<size_t> debug_node;
+    if (const char* debug_env = std::getenv("WAYVERB_DEBUG_NODE")) {
+        try {
+            debug_node = static_cast<size_t>(std::stoull(debug_env));
+        } catch (...) {
+            debug_node.reset();
+        }
+    }
     const auto make_zeroed_buffer = [&] {
         auto ret = cl::Buffer{
                 cc.context, CL_MEM_READ_WRITE, sizeof(cl_float) * num_nodes};
@@ -72,6 +83,8 @@ size_t run(const core::compute_context& cc,
             cc.context, mesh.get_structure().get_coefficients(), true);
 
     cl::Buffer error_flag_buffer{cc.context, CL_MEM_READ_WRITE, sizeof(cl_int)};
+    cl::Buffer debug_info_buffer{
+            cc.context, CL_MEM_READ_WRITE, sizeof(cl_int) * 12};
 
     auto boundary_host_1 = get_boundary_data<1>(mesh.get_structure());
     auto boundary_host_2 = get_boundary_data<2>(mesh.get_structure());
@@ -92,8 +105,207 @@ size_t run(const core::compute_context& cc,
     //  The preprocessor returns 'true' while it should be run.
     //  It also updates the mesh with new pressure values.
     for (; pre(queue, current, step) && keep_going; ++step) {
+        if (debug_node && step == 0) {
+            const auto idx = *debug_node;
+            const auto locator = waveguide::compute_locator(
+                    mesh.get_descriptor(), idx);
+            const auto neighbors =
+                    waveguide::compute_neighbors(mesh.get_descriptor(), idx);
+            const auto current_val = core::read_value<float>(queue, current, idx);
+            const auto previous_val = core::read_value<float>(queue, previous, idx);
+            const auto boundary_type_value = nodes_host[idx].boundary_type;
+            const auto boundary_index = nodes_host[idx].boundary_index;
+            std::cerr << "[waveguide] DEBUG pre-step node " << idx
+                      << " locator(" << locator.x << ", " << locator.y
+                      << ", " << locator.z << ")"
+                      << " current=" << current_val
+                      << " previous=" << previous_val
+                      << " boundary_type=" << boundary_type_value
+                      << " boundary_index=" << boundary_index
+                      << " neighbors=[" << neighbors[0] << ", "
+                      << neighbors[1] << ", " << neighbors[2] << ", "
+                      << neighbors[3] << ", " << neighbors[4] << ", "
+                      << neighbors[5] << "]\n";
+            for (auto neighbor : neighbors) {
+                if (neighbor != mesh_descriptor::no_neighbor) {
+                    const auto neighbor_val =
+                            core::read_value<float>(queue, current, neighbor);
+                    std::cerr << "  neighbor " << neighbor
+                              << " current=" << neighbor_val << '\n';
+                }
+            }
+
+            const float courant_sq = 1.0f / 3.0f;
+            const int boundary_count =
+                    __builtin_popcount(static_cast<unsigned int>(
+                            boundary_type_value & ~id_inside));
+            const auto neighbor_for_port = [&](int port) -> cl_uint {
+                switch (port) {
+                    case 0: return neighbors[0];
+                    case 1: return neighbors[1];
+                    case 2: return neighbors[2];
+                    case 3: return neighbors[3];
+                    case 4: return neighbors[4];
+                    case 5: return neighbors[5];
+                    default: return mesh_descriptor::no_neighbor;
+                }
+            };
+
+            const auto read_current = [&](cl_uint index_val) -> float {
+                if (index_val == mesh_descriptor::no_neighbor) { return 0.0f; }
+                return core::read_value<float>(queue, current, index_val);
+            };
+
+            auto get_inner_dirs = [&](int bt) -> std::array<int, 2> {
+                switch (bt) {
+                    case id_nx | id_ny: return {0, 2};
+                    case id_nx | id_py: return {0, 3};
+                    case id_px | id_ny: return {1, 2};
+                    case id_px | id_py: return {1, 3};
+                    case id_nx | id_nz: return {0, 4};
+                    case id_nx | id_pz: return {0, 5};
+                    case id_px | id_nz: return {1, 4};
+                    case id_px | id_pz: return {1, 5};
+                    case id_ny | id_nz: return {2, 4};
+                    case id_ny | id_pz: return {2, 5};
+                    case id_py | id_nz: return {3, 4};
+                    case id_py | id_pz: return {3, 5};
+                    default: return {-1, -1};
+                }
+            };
+
+            auto get_surrounding_dirs = [&](const std::array<int, 2>& ind) {
+                std::array<int, 2> result{0, 0};
+                const bool has_x = (ind[0] == 0 || ind[0] == 1 || ind[1] == 0 || ind[1] == 1);
+                const bool has_y = (ind[0] == 2 || ind[0] == 3 || ind[1] == 2 || ind[1] == 3);
+                if (has_x && has_y) {
+                    result = {4, 5};
+                } else if (has_x) {
+                    result = {2, 3};
+                } else {
+                    result = {0, 1};
+                }
+                return result;
+            };
+
+            const auto inner_dirs = get_inner_dirs(boundary_type_value & ~id_inside);
+            auto surrounding_dirs = get_surrounding_dirs(inner_dirs);
+
+            float sum_inner = 0.0f;
+            for (int dir : inner_dirs) {
+                if (dir >= 0) {
+                    sum_inner += 2.0f * read_current(neighbor_for_port(dir));
+                }
+            }
+
+            float sum_surround = 0.0f;
+            for (int dir : surrounding_dirs) {
+                sum_surround += read_current(neighbor_for_port(dir));
+            }
+
+            const float current_surrounding_weighting =
+                    courant_sq * (sum_inner + sum_surround);
+
+            const auto dump_boundary = [&](int count) {
+                const auto log_entry = [&](const auto& boundary_host,
+                                           const char* label) {
+                    if (boundary_index >= boundary_host.size()) {
+                        std::cerr << "  " << label
+                                  << " index out of range; size="
+                                  << boundary_host.size() << "\n";
+                        return;
+                    }
+                    const auto& arr = boundary_host[boundary_index];
+                    for (int entry = 0; entry < count; ++entry) {
+                        const auto coeff_index = arr.array[entry].coefficient_index;
+                        float a0 = std::numeric_limits<float>::quiet_NaN();
+                        float b0 = std::numeric_limits<float>::quiet_NaN();
+                        if (coeff_index < coefficients_host.size()) {
+                            a0 = static_cast<float>(coefficients_host[coeff_index].a[0]);
+                            b0 = static_cast<float>(coefficients_host[coeff_index].b[0]);
+                        }
+                        const float mem0 =
+                                static_cast<float>(arr.array[entry].filter_memory.array[0]);
+                        std::cerr << "  " << label << "[" << entry
+                                  << "] coeff_index=" << coeff_index
+                                  << " a0=" << a0 << " b0=" << b0
+                                  << " mem0=" << mem0 << "\n";
+                    }
+                };
+                switch (count) {
+                    case 1: log_entry(boundary_host_1, "b1"); break;
+                    case 2: log_entry(boundary_host_2, "b2"); break;
+                    case 3: log_entry(boundary_host_3, "b3"); break;
+                    default:
+                        std::cerr << "  boundary_count=" << count
+                                  << " (no boundary data vector)\n";
+                        break;
+                }
+            };
+            dump_boundary(boundary_count);
+
+            float filter_weighting = 0.0f;
+            if (!(boundary_type_value & id_inside)) {
+                auto accumulate_filter_weighting = [&](const auto& arr) {
+                    for (const auto& bd : arr.array) {
+                        const auto ci = bd.coefficient_index;
+                        if (ci < coefficients_host.size()) {
+                            const float b0 = static_cast<float>(coefficients_host[ci].b[0]);
+                            const float mem0 = static_cast<float>(bd.filter_memory.array[0]);
+                            if (b0 != 0.0f) {
+                                filter_weighting += mem0 / b0;
+                            }
+                        }
+                    }
+                };
+
+                if (boundary_count == 1 && boundary_index < boundary_host_1.size()) {
+                    accumulate_filter_weighting(boundary_host_1[boundary_index]);
+                } else if (boundary_count == 2 && boundary_index < boundary_host_2.size()) {
+                    accumulate_filter_weighting(boundary_host_2[boundary_index]);
+                } else if (boundary_count == 3 && boundary_index < boundary_host_3.size()) {
+                    accumulate_filter_weighting(boundary_host_3[boundary_index]);
+                }
+            }
+
+            filter_weighting *= courant_sq;
+
+            float coeff_weighting = 0.0f;
+            if (boundary_count == 2 && boundary_index < boundary_host_2.size()) {
+                const auto& arr = boundary_host_2[boundary_index];
+                for (const auto& bd : arr.array) {
+                    const auto ci = bd.coefficient_index;
+                    if (ci < coefficients_host.size()) {
+                        const float a0 = static_cast<float>(coefficients_host[ci].a[0]);
+                        const float b0 = static_cast<float>(coefficients_host[ci].b[0]);
+                        if (b0 != 0.0f) {
+                            coeff_weighting += a0 / b0;
+                        }
+                    }
+                }
+            }
+
+            const float prev_weighting = (coeff_weighting - 1.0f) * previous_val;
+            const float numerator = current_surrounding_weighting + filter_weighting + prev_weighting;
+            const float denominator = 1.0f + coeff_weighting;
+            float approx_ret = numerator / denominator;
+
+            std::cerr << "  current_surrounding_weighting=" << current_surrounding_weighting
+                      << " filter_weighting=" << filter_weighting
+                      << " coeff_weighting=" << coeff_weighting
+                      << " prev_weighting=" << prev_weighting
+                      << " numerator=" << numerator
+                      << " denominator=" << denominator
+                      << " approx_ret=" << approx_ret << '\n';
+        }
+
         //  set flag state to successful
         core::write_value(queue, error_flag_buffer, 0, id_success);
+        {
+            const cl_int zero = 0;
+            queue.enqueueFillBuffer(
+                    debug_info_buffer, zero, 0, sizeof(cl_int) * 12);
+        }
 
         //  run kernel
         kernel(cl::EnqueueArgs(queue,
@@ -108,7 +320,8 @@ size_t run(const core::compute_context& cc,
                boundary_buffer_2,
                boundary_buffer_3,
                boundary_coefficients_buffer,
-               error_flag_buffer);
+               error_flag_buffer,
+               debug_info_buffer);
 
         //  read out flag value
         if (const auto error_flag =
@@ -136,74 +349,64 @@ size_t run(const core::compute_context& cc,
                                                                static_cast<unsigned int>(
                                                                        boundary_type))
                                                      : 0;
-                        std::vector<cl_uint> coefficient_indices;
                         const auto boundary_index =
                                 idx < nodes_host.size()
                                         ? nodes_host[idx].boundary_index
                                         : 0u;
-                        switch (boundary_count) {
-                            case 1:
-                                if (boundary_index < boundary_host_1.size()) {
-                                    coefficient_indices.push_back(
-                                            boundary_host_1[boundary_index]
-                                                    .array[0]
-                                                    .coefficient_index);
-                                }
-                                break;
-                            case 2:
-                                if (boundary_index < boundary_host_2.size()) {
-                                    coefficient_indices.push_back(
-                                            boundary_host_2[boundary_index]
-                                                    .array[0]
-                                                    .coefficient_index);
-                                    coefficient_indices.push_back(
-                                            boundary_host_2[boundary_index]
-                                                    .array[1]
-                                                    .coefficient_index);
-                                }
-                                break;
-                            case 3:
-                                if (boundary_index < boundary_host_3.size()) {
-                                    coefficient_indices.push_back(
-                                            boundary_host_3[boundary_index]
-                                                    .array[0]
-                                                    .coefficient_index);
-                                    coefficient_indices.push_back(
-                                            boundary_host_3[boundary_index]
-                                                    .array[1]
-                                                    .coefficient_index);
-                                    coefficient_indices.push_back(
-                                            boundary_host_3[boundary_index]
-                                                    .array[2]
-                                                    .coefficient_index);
-                                }
-                                break;
-                            default: break;
-                        }
 
-                        auto dump_coeffs = [&]() {
+                        auto dump_boundary = [&](const char* label_prefix,
+                                                  const auto& boundary_host) {
                             std::string result;
-                            for (size_t i = 0; i < coefficient_indices.size(); ++i) {
-                                const auto coeff_index = coefficient_indices[i];
-                                float b0 = std::numeric_limits<float>::quiet_NaN();
-                                float a0 = std::numeric_limits<float>::quiet_NaN();
-                                if (coeff_index < coefficients_host.size()) {
-                                    b0 = static_cast<float>(
-                                            coefficients_host[coeff_index].b[0]);
-                                    a0 = static_cast<float>(
-                                            coefficients_host[coeff_index].a[0]);
-                                }
-                                result += util::build_string(
-                                        "[", coeff_index, ": b0=", b0, ", a0=", a0, "]");
-                                if (i + 1 < coefficient_indices.size()) {
-                                    result += ", ";
+                            if (boundary_index < boundary_host.size()) {
+                                const auto& arr = boundary_host[boundary_index];
+                                using array_type = std::decay_t<decltype(arr)>;
+                                for (size_t i = 0; i < array_type::DIMENSIONS; ++i) {
+                                    const auto coeff_index = arr.array[i].coefficient_index;
+                                    float b0 = std::numeric_limits<float>::quiet_NaN();
+                                    float a0 = std::numeric_limits<float>::quiet_NaN();
+                                    float mem0 = std::numeric_limits<float>::quiet_NaN();
+                                    if (coeff_index < coefficients_host.size()) {
+                                        b0 = static_cast<float>(
+                                                coefficients_host[coeff_index].b[0]);
+                                        a0 = static_cast<float>(
+                                                coefficients_host[coeff_index].a[0]);
+                                    }
+                                    mem0 = static_cast<float>(
+                                            arr.array[i].filter_memory.array[0]);
+                                    if (!result.empty()) {
+                                        result += ", ";
+                                    }
+                                    result += util::build_string(
+                                            label_prefix,
+                                            "[", i, ": coeff=", coeff_index,
+                                            ", b0=", b0,
+                                            ", a0=", a0,
+                                            ", mem0=", mem0,
+                                            "]");
                                 }
                             }
                             if (result.empty()) {
-                                result = "[none]";
+                                result = util::build_string(label_prefix, "[none]");
                             }
                             return result;
-                        }();
+                        };
+
+                        std::string boundary_details;
+                        switch (boundary_count) {
+                            case 1:
+                                boundary_details =
+                                        dump_boundary("b1", boundary_host_1);
+                                break;
+                            case 2:
+                                boundary_details =
+                                        dump_boundary("b2", boundary_host_2);
+                                break;
+                            case 3:
+                                boundary_details =
+                                        dump_boundary("b3", boundary_host_3);
+                                break;
+                            default: boundary_details = "b[none]";
+                        }
                         const auto locator =
                                 waveguide::compute_locator(
                                         mesh.get_descriptor(), idx);
@@ -214,7 +417,7 @@ size_t run(const core::compute_context& cc,
                                   << ") at step " << step << ", node " << idx
                                   << ", boundary_type " << boundary_type
                                   << " (count=" << boundary_count << ")"
-                                  << ", coeffs " << dump_coeffs
+                                  << ", " << boundary_details
                                   << ", locator (" << locator.x << ", "
                                   << locator.y << ", " << locator.z << ")"
                                   << ", boundary_index " << boundary_index
@@ -238,6 +441,49 @@ size_t run(const core::compute_context& cc,
             }
 
             if (error_flag & id_nan_error) {
+                auto debug_info =
+                        core::read_from_buffer<cl_int>(queue, debug_info_buffer);
+                if (!debug_info.empty()) {
+                    const auto bits_to_float = [](cl_int bits) {
+                        union {
+                            cl_uint u;
+                            float f;
+                        } converter{static_cast<cl_uint>(bits)};
+                        return converter.f;
+                    };
+                    const auto safe_get = [&](size_t index) -> cl_int {
+                        return debug_info.size() > index ? debug_info[index] : -1;
+                    };
+                    std::cerr << "[waveguide] nan-debug (size=" << debug_info.size()
+                              << ") code=" << safe_get(0)
+                              << " node=" << safe_get(1)
+                              << " boundary_index=" << safe_get(2)
+                              << " local_idx=" << safe_get(3)
+                              << " coeff_index=" << safe_get(4)
+                              << " filt_state_bits=" << safe_get(5)
+                              << " a0_bits=" << safe_get(6)
+                              << " b0_bits=" << safe_get(7)
+                              << " diff_bits=" << safe_get(8)
+                              << " filter_in_bits=" << safe_get(9)
+                              << " prev_bits=" << safe_get(10)
+                              << " next_bits=" << safe_get(11) << '\n';
+                    if (debug_info.size() > 11) {
+                        std::cerr << "  decoded: filt_state="
+                                  << bits_to_float(debug_info[5])
+                                  << " a0="
+                                  << bits_to_float(debug_info[6])
+                                  << " b0="
+                                  << bits_to_float(debug_info[7])
+                                  << " diff="
+                                  << bits_to_float(debug_info[8])
+                                  << " filter_input="
+                                  << bits_to_float(debug_info[9])
+                                  << " prev_pressure="
+                                  << bits_to_float(debug_info[10])
+                                  << " next_pressure="
+                                  << bits_to_float(debug_info[11]) << '\n';
+                    }
+                }
                 log_non_finite("NaN");
                 throw core::exceptions::value_is_nan(
                         "Pressure value is nan, check filter coefficients.");

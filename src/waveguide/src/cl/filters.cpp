@@ -23,7 +23,10 @@ const char* filters = R"(
             filt_real input,                                                 \
             global CAT(memory_, order) * m,                                  \
             const global CAT(coefficients_, order) * c) {                    \
-        const filt_real output = (input * c->b[0] + m->array[0]) / c->a[0];  \
+        const filt_real a0 = c->a[0];                                        \
+        const filt_real b0 = c->b[0];                                        \
+        const filt_real denom0 = fabs(a0) > (filt_real)1e-12 ? a0 : (filt_real)1; \
+        const filt_real output = (input * b0 + m->array[0]) / denom0;        \
         for (int i = 0; i != order - 1; ++i) {                               \
             const filt_real b = c->b[i + 1] == 0 ? 0 : c->b[i + 1] * input;  \
             const filt_real a = c->a[i + 1] == 0 ? 0 : c->a[i + 1] * output; \

@@ -102,7 +102,7 @@ typedef struct {
 template <>
 struct core::cl_representation<waveguide::boundary_data> final {
     static constexpr auto value = R"(
-typedef struct {
+typedef struct __attribute__((aligned(8))) {
     memory_canonical filter_memory;
     uint coefficient_index;
 } boundary_data;
@@ -112,21 +112,21 @@ typedef struct {
 template <>
 struct core::cl_representation<waveguide::boundary_data_array_1> final {
     static constexpr auto value = R"(
-typedef struct { boundary_data array[1]; } boundary_data_array_1;
+typedef struct __attribute__((aligned(8))) { boundary_data array[1]; } boundary_data_array_1;
 )";
 };
 
 template <>
 struct core::cl_representation<waveguide::boundary_data_array_2> final {
     static constexpr auto value = R"(
-typedef struct { boundary_data array[2]; } boundary_data_array_2;
+typedef struct __attribute__((aligned(8))) { boundary_data array[2]; } boundary_data_array_2;
 )";
 };
 
 template <>
 struct core::cl_representation<waveguide::boundary_data_array_3> final {
     static constexpr auto value = R"(
-typedef struct { boundary_data array[3]; } boundary_data_array_3;
+typedef struct __attribute__((aligned(8))) { boundary_data array[3]; } boundary_data_array_3;
 )";
 };
 

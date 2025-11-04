@@ -30,7 +30,8 @@ public:
                             cl::Buffer,  /// boundary_data_2
                             cl::Buffer,  /// boundary_data_3
                             cl::Buffer,  /// boundary_coefficients
-                            cl::Buffer   /// error_flag
+                            cl::Buffer,  /// error_flag
+                            cl::Buffer   /// debug_info
                             >("condensed_waveguide");
     }
 
@@ -48,6 +49,10 @@ public:
         return program_wrapper_
                 .get_kernel<cl::Buffer, cl::Buffer, cl::Buffer, cl::Buffer>(
                         "filter_test_2");
+    }
+
+    auto get_layout_probe_kernel() const {
+        return program_wrapper_.get_kernel<cl::Buffer>("layout_probe");
     }
 
     template <cl_program_info T>

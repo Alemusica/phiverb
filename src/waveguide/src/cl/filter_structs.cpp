@@ -4,7 +4,7 @@ namespace wayverb {
 
 const std::string core::cl_representation<waveguide::memory_biquad>::value{
         R"(
-typedef struct {
+typedef struct __attribute__((aligned(8))) {
     filt_real array[)" +
         std::to_string(waveguide::memory_biquad::order) + R"(];
 } memory_)" +
@@ -17,7 +17,7 @@ typedef memory_)" +
 const std::string
         core::cl_representation<waveguide::coefficients_biquad>::value{
                 R"(
-typedef struct {
+typedef struct __attribute__((aligned(8))) {
     filt_real b[)" +
                 std::to_string(waveguide::coefficients_biquad::order + 1) +
                 R"(];
@@ -34,7 +34,7 @@ typedef coefficients_)" +
 
 const std::string core::cl_representation<waveguide::memory_canonical>::value{
         R"(
-typedef struct {
+typedef struct __attribute__((aligned(8))) {
     filt_real array[)" +
         std::to_string(waveguide::memory_canonical::order) + R"(];
 } memory_)" +
@@ -48,7 +48,7 @@ typedef memory_)" +
 const std::string
         core::cl_representation<waveguide::coefficients_canonical>::value{
                 R"(
-typedef struct {
+typedef struct __attribute__((aligned(8))) {
     filt_real b[)" +
                 std::to_string(waveguide::coefficients_canonical::order + 1) +
                 R"(];
