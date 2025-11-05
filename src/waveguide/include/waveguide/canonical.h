@@ -7,6 +7,7 @@
 #include "waveguide/preprocessor/hard_source.h"
 #include "waveguide/simulation_parameters.h"
 #include "waveguide/waveguide.h"
+#include "waveguide/backend_selector.h"
 
 #include "core/callback_accumulator.h"
 #include "core/environment.h"
@@ -15,6 +16,7 @@
 #include "hrtf/multiband.h"
 
 #include <cmath>
+#include <iostream>
 
 /// \file canonical.h
 /// The waveguide algorithm in waveguide.h is modular, in that
@@ -87,6 +89,28 @@ std::optional<band> canonical_impl(
     return band{std::move(output_accumulator.get_output()), sample_rate};
 }
 
+template <typename Callback>
+std::optional<band> bempp_canonical_impl(
+        const core::compute_context& /*cc*/,
+        const mesh& /*mesh*/,
+        double /*simulation_time*/,
+        const glm::vec3& /*source*/,
+        const glm::vec3& /*receiver*/,
+        const core::environment& /*environment*/,
+        const std::atomic_bool& keep_going,
+        Callback&& /*callback*/) {
+    if (!keep_going) {
+        return std::nullopt;
+    }
+    static bool warned = false;
+    if (!warned) {
+        std::cerr << "[waveguide] Bempp backend selected but not yet implemented. "
+                     "Falling back to null result.\n";
+        warned = true;
+    }
+    return std::nullopt;
+}
+
 }  // namespace detail
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -108,6 +132,22 @@ std::optional<util::aligned::vector<bandpass_band>> canonical(
         double simulation_time,
         const std::atomic_bool& keep_going,
         PressureCallback&& pressure_callback) {
+    const auto backend = select_backend();
+    if (backend == waveguide_backend::bempp_cpu) {
+        if (auto ret = detail::bempp_canonical_impl(cc,
+                                                    voxelised.mesh,
+                                                    simulation_time,
+                                                    source,
+                                                    receiver,
+                                                    environment,
+                                                    keep_going,
+                                                    pressure_callback)) {
+            return util::aligned::vector<bandpass_band>{bandpass_band{
+                    std::move(*ret), util::make_range(0.0, sim_params.cutoff)}};
+        }
+        return std::nullopt;
+    }
+
     if (auto ret = detail::canonical_impl(cc,
                                           voxelised.mesh,
                                           simulation_time,
@@ -149,6 +189,20 @@ std::optional<util::aligned::vector<bandpass_band>> canonical(
         const std::atomic_bool& keep_going,
         PressureCallback&& pressure_callback) {
     const auto band_params = hrtf_data::hrtf_band_params_hz();
+
+    if (select_backend() == waveguide_backend::bempp_cpu) {
+        // Multi-band Bempp support will come later. For now, we log and bail.
+        std::cerr << "[waveguide] Multiple-band Bempp backend not yet implemented.\n";
+        (void)voxelised;
+        (void)source;
+        (void)receiver;
+        (void)environment;
+        (void)sim_params;
+        (void)simulation_time;
+        (void)keep_going;
+        (void)pressure_callback;
+        return std::nullopt;
+    }
 
     util::aligned::vector<bandpass_band> ret{};
 

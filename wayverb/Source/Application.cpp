@@ -1,6 +1,7 @@
 #include "Application.h"
 #include "AngularLookAndFeel.h"
 #include "CommandIDs.h"
+#include "utilities/crash_reporter.h"
 #include "try_and_explain.h"
 
 #include "UtilityComponents/LoadWindow.h"
@@ -377,6 +378,8 @@ const String wayverb_application::getApplicationVersion() {
 bool wayverb_application::moreThanOneInstanceAllowed() { return false; }
 
 void wayverb_application::initialise(const String& command_line) {
+    util::crash::reporter::install({ std::string(ProjectInfo::projectName),
+                                     std::string(ProjectInfo::versionString) });
     instance_ = std::make_unique<instance>(*this, command_line.toStdString());
 }
 

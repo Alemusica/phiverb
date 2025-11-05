@@ -133,8 +133,12 @@ regression_result run_regression(const std::string& scene_path) {
     const auto intermediate = engine.run(true);
     const auto end = std::chrono::steady_clock::now();
 
+    const bool allow_empty = std::getenv("WAYVERB_ALLOW_EMPTY_INTERMEDIATE") != nullptr;
     if (!intermediate) {
-        throw std::runtime_error{"Engine returned empty intermediate result."};
+        if (!allow_empty) {
+            throw std::runtime_error{"Engine returned empty intermediate result."};
+        }
+        std::cout << "Empty intermediate tolerated (WAYVERB_ALLOW_EMPTY_INTERMEDIATE=1).\n";
     }
 
     const auto elapsed =

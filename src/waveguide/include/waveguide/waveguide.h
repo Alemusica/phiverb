@@ -67,6 +67,17 @@ size_t run(const core::compute_context& cc,
             debug_node.reset();
         }
     }
+    std::optional<size_t> trace_node;
+    if (const char* trace_env = std::getenv("WAYVERB_TRACE_NODE")) {
+        try {
+            trace_node = static_cast<size_t>(std::stoull(trace_env));
+        } catch (...) {
+            trace_node.reset();
+        }
+    }
+    if (!trace_node && debug_node) {
+        trace_node = debug_node;
+    }
     const auto make_zeroed_buffer = [&] {
         auto ret = cl::Buffer{
                 cc.context, CL_MEM_READ_WRITE, sizeof(cl_float) * num_nodes};
@@ -78,6 +89,72 @@ size_t run(const core::compute_context& cc,
     auto previous = make_zeroed_buffer();
     auto current = make_zeroed_buffer();
     auto previous_history = make_zeroed_buffer();
+
+    struct trace_record {
+        cl_uint kind;
+        cl_uint step;
+        cl_uint global_index;
+        cl_uint face;
+        cl_float prev_pressure;
+        cl_float current_pressure;
+        cl_float next_pressure;
+        cl_float fs0_in;
+        cl_float fs0_out;
+        cl_float diff;
+        cl_float a0;
+        cl_float b0;
+    };
+
+    const bool trace_enabled = trace_node.has_value();
+    const size_t trace_capacity = trace_enabled ? static_cast<size_t>(16384) : static_cast<size_t>(1);
+    cl::Buffer trace_buffer{
+            cc.context,
+            CL_MEM_READ_WRITE,
+            sizeof(trace_record) * trace_capacity};
+    cl::Buffer trace_head_buffer{cc.context, CL_MEM_READ_WRITE, sizeof(cl_uint)};
+    {
+        const cl_uint zero = 0;
+        queue.enqueueFillBuffer(trace_head_buffer, zero, 0, sizeof(cl_uint));
+    }
+
+    const cl_uint trace_target = trace_enabled
+            ? static_cast<cl_uint>(*trace_node)
+            : std::numeric_limits<cl_uint>::max();
+    const cl_uint trace_capacity_uint = static_cast<cl_uint>(trace_capacity);
+    const cl_uint trace_enabled_flag = trace_enabled ? 1u : 0u;
+    bool trace_dumped = false;
+    auto dump_trace = [&](const char* reason) {
+        if (!trace_enabled || trace_dumped) {
+            return;
+        }
+        trace_dumped = true;
+        queue.finish();
+        const cl_uint used = core::read_value<cl_uint>(queue, trace_head_buffer, 0);
+        std::cerr << "[waveguide] trace captured " << used
+                  << " record(s) for node " << *trace_node;
+        if (reason != nullptr) {
+            std::cerr << " (" << reason << ")";
+        }
+        std::cerr << '\n';
+        if (std::getenv("WAYVERB_TRACE_DUMP")) {
+            auto records = core::read_from_buffer<trace_record>(queue, trace_buffer);
+            const size_t count = std::min<size_t>(used, records.size());
+            for (size_t i = 0; i < count; ++i) {
+                const auto& rec = records[i];
+                std::cerr << "  trace[" << i << "] kind=" << rec.kind
+                          << " step=" << rec.step
+                          << " face=" << rec.face
+                          << " prev=" << rec.prev_pressure
+                          << " curr=" << rec.current_pressure
+                          << " next=" << rec.next_pressure
+                          << " fs0_in=" << rec.fs0_in
+                          << " fs0_out=" << rec.fs0_out
+                          << " diff=" << rec.diff
+                          << " a0=" << rec.a0
+                          << " b0=" << rec.b0 << '\n';
+            }
+        }
+    };
 
     const cl_uint num_prev = static_cast<cl_uint>(num_nodes);
 
@@ -120,7 +197,7 @@ size_t run(const core::compute_context& cc,
     auto update_boundary_1_kernel = program.get_update_boundary_1_kernel();
     auto update_boundary_2_kernel = program.get_update_boundary_2_kernel();
     auto update_boundary_3_kernel = program.get_update_boundary_3_kernel();
-    const bool trace_enabled = std::getenv("WAYVERB_WG_TRACE") != nullptr;
+    const bool stage_trace_enabled = std::getenv("WAYVERB_WG_TRACE") != nullptr;
     struct stage_trace_payload {
         std::string name;
         size_t global_work_size{};
@@ -145,7 +222,7 @@ size_t run(const core::compute_context& cc,
     auto attach_trace = [&](const char* name,
                             size_t global_work_size,
                             cl::Event& event) {
-        if (!trace_enabled || event() == nullptr) {
+        if (!stage_trace_enabled || event() == nullptr) {
             return;
         }
         auto payload = std::make_unique<stage_trace_payload>();
@@ -485,7 +562,13 @@ size_t run(const core::compute_context& cc,
                 boundary_coefficients_buffer,
                 error_flag_buffer,
                 debug_info_buffer,
-                num_prev);
+                num_prev,
+                trace_target,
+                trace_buffer,
+                trace_head_buffer,
+                trace_capacity_uint,
+                trace_enabled_flag,
+                static_cast<cl_uint>(step));
         attach_trace("pressure",
                      mesh.get_structure().get_condensed_nodes().size(),
                      pressure_event);
@@ -502,6 +585,7 @@ size_t run(const core::compute_context& cc,
                                                      0)) {
                 std::cerr << "[waveguide][" << stage
                           << "] error_flag=" << error_flag << '\n';
+                dump_trace(stage);
                 const auto log_non_finite = [&](const char* label) {
                 const auto report = [&](const char* which,
                                         const cl::Buffer& buffer) {
@@ -710,7 +794,13 @@ size_t run(const core::compute_context& cc,
                                     boundary_buffer,
                                     boundary_coefficients_buffer,
                                     error_flag_buffer,
-                                    debug_info_buffer);
+                                    debug_info_buffer,
+                                    trace_target,
+                                    trace_buffer,
+                                    trace_head_buffer,
+                                    trace_capacity_uint,
+                                    trace_enabled_flag,
+                                    static_cast<cl_uint>(step));
                     attach_trace(stage_name, count, stage_event);
                     if (stage_event() != nullptr) {
                         stage_event.wait();
@@ -740,6 +830,7 @@ size_t run(const core::compute_context& cc,
 
         std::swap(previous, current);
     }
+    dump_trace("completed");
     return step;
 }
 

@@ -6,6 +6,8 @@
 #include "receivers/master.h"
 #include "sources/master.h"
 #include "waveguide/master.h"
+#include "geometry/master.h"
+#include "utilities/crash_reporter.h"
 
 #include "core/reverb_time.h"
 
@@ -106,6 +108,9 @@ master::master(main_model& model)
                               ": ",
                               wayverb::combined::to_string(state)));
                       bottom_.set_progress(progress);
+                      util::crash::reporter::set_status(util::build_string(
+                              "engine_state=", wayverb::combined::to_string(state),
+                              " progress=", progress));
                   })}
         , finished_connection_{model_.connect_finished([this] {
             //  Re-enable the top panel.
@@ -145,6 +150,9 @@ master::master(main_model& model)
             make_material_options(model_.scene,
                                   model_.material_presets,
                                   *model_.project.persistent.materials()));
+    property_panel_.addSection(
+            "geometry",
+            {new wrapped_property_component<geometry::master>{model_}});
     property_panel_.addSection(
             "raytracer",
             {static_cast<PropertyComponent*>(new raytracer::quality_property{

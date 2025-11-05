@@ -32,7 +32,13 @@ public:
                             cl::Buffer,  /// boundary_coefficients
                             cl::Buffer,  /// error_flag
                             cl::Buffer,  /// debug_info
-                            cl_uint      /// num_prev
+                            cl_uint,     /// num_prev
+                            cl_uint,     /// trace_target
+                            cl::Buffer,  /// trace_records
+                            cl::Buffer,  /// trace_head
+                            cl_uint,     /// trace_capacity
+                            cl_uint,     /// trace_enabled flag
+                            cl_uint      /// step index
                             >("condensed_waveguide");
     }
 
@@ -72,7 +78,13 @@ public:
                             cl::Buffer,
                             cl::Buffer,
                             cl::Buffer,
-                            cl::Buffer>("update_boundary_1");
+                            cl::Buffer,
+                            cl_uint,
+                            cl::Buffer,
+                            cl::Buffer,
+                            cl_uint,
+                            cl_uint,
+                            cl_uint>("update_boundary_1");
     }
 
     auto get_update_boundary_2_kernel() const {
@@ -86,7 +98,13 @@ public:
                             cl::Buffer,
                             cl::Buffer,
                             cl::Buffer,
-                            cl::Buffer>("update_boundary_2");
+                            cl::Buffer,
+                            cl_uint,
+                            cl::Buffer,
+                            cl::Buffer,
+                            cl_uint,
+                            cl_uint,
+                            cl_uint>("update_boundary_2");
     }
 
     auto get_update_boundary_3_kernel() const {
@@ -100,7 +118,13 @@ public:
                             cl::Buffer,
                             cl::Buffer,
                             cl::Buffer,
-                            cl::Buffer>("update_boundary_3");
+                            cl::Buffer,
+                            cl_uint,
+                            cl::Buffer,
+                            cl::Buffer,
+                            cl_uint,
+                            cl_uint,
+                            cl_uint>("update_boundary_3");
     }
 
     template <cl_program_info T>

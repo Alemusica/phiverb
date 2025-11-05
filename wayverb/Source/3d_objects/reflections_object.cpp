@@ -127,7 +127,7 @@ util::aligned::vector<GLuint> reflections_object::compute_indices(
     //  this will hold the begin index of each ray in the vertex buffer
     size_t counter = 1;
     const auto rays = reflections.size();
-    for (size_t i = 0; i != rays; ++i, counter += reflections[i].size()) {
+    for (size_t i = 0; i != rays; ++i) {
         const auto& ray = reflections[i];
 
         if (!ray.empty()) {
@@ -143,6 +143,8 @@ util::aligned::vector<GLuint> reflections_object::compute_indices(
 
             ret.emplace_back(reflection_points + 1 + i);
         }
+        // advance the base index for the next ray after processing this one
+        counter += ray.size();
     }
 
     return ret;

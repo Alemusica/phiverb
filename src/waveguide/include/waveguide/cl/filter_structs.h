@@ -9,7 +9,12 @@ namespace wayverb {
 namespace waveguide {
 
 #ifndef WAYVERB_FORCE_SINGLE_PRECISION
-#define WAYVERB_FORCE_SINGLE_PRECISION 0
+#  if defined(__APPLE__)
+// Default to single-precision on Apple platforms unless explicitly overridden.
+#    define WAYVERB_FORCE_SINGLE_PRECISION 1
+#  else
+#    define WAYVERB_FORCE_SINGLE_PRECISION 0
+#  endif
 #endif
 
 constexpr size_t biquad_order{2};

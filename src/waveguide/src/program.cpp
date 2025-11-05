@@ -184,6 +184,63 @@ inline void record_pressure_nan(global int* debug_info,
     }
 }
 
+typedef struct {
+    uint kind;
+    uint step;
+    uint global_index;
+    uint face;
+    float prev_pressure;
+    float current_pressure;
+    float next_pressure;
+    float fs0_in;
+    float fs0_out;
+    float diff;
+    float a0;
+    float b0;
+} trace_record_t;
+
+#define TRACE_KIND_PRESSURE 1u
+#define TRACE_KIND_BOUNDARY_1 2u
+#define TRACE_KIND_BOUNDARY_2 3u
+#define TRACE_KIND_BOUNDARY_3 4u
+
+inline void trace_write(__global trace_record_t* records,
+                        __global uint* head,
+                        uint capacity,
+                        uint enabled,
+                        uint kind,
+                        uint step,
+                        uint global_index,
+                        uint face,
+                        float prev_p,
+                        float curr_p,
+                        float next_p,
+                        float fs0_in,
+                        float fs0_out,
+                        float diff,
+                        float a0,
+                        float b0) {
+    if (!enabled || records == 0 || head == 0 || capacity == 0) {
+        return;
+    }
+    uint slot = atomic_inc((volatile __global uint*)head);
+    slot = slot % capacity;
+    trace_record_t rec;
+    rec.kind = kind;
+    rec.step = step;
+    rec.global_index = global_index;
+    rec.face = face;
+    rec.prev_pressure = prev_p;
+    rec.current_pressure = curr_p;
+    rec.next_pressure = next_p;
+    rec.fs0_in = fs0_in;
+    rec.fs0_out = fs0_out;
+    rec.diff = diff;
+    rec.a0 = a0;
+    rec.b0 = b0;
+    records[slot] = rec;
+}
+
 filt_real filter_step_canonical_private(
         filt_real input,
         memory_canonical* m,
@@ -296,6 +353,7 @@ void ghost_point_pressure_update(
     }
     filt_real a0 = boundary->a[0];
     filt_real b0 = boundary->b[0];
+    const float kFilterMemoryLimit = 1.0e30f;
     if (!isfinite(a0)) {
         a0 = (filt_real)1;
     }
@@ -307,6 +365,36 @@ void ghost_point_pressure_update(
     }
     filt_real filt_state = bd->filter_memory.array[0];
     if (!isfinite(filt_state)) {
+        filt_state = 0;
+    }
+    bool reset_memory = false;
+#pragma unroll
+    for (int k = 0; k != CANONICAL_FILTER_ORDER; ++k) {
+        const float value = (float)bd->filter_memory.array[k];
+        if (!isfinite(value) || fabs(value) > kFilterMemoryLimit) {
+            reset_memory = true;
+            break;
+        }
+    }
+    if (reset_memory) {
+        const float filt_state_bits = (float)filt_state;
+        record_nan(debug_info,
+                   10,
+                   global_index,
+                   boundary_index,
+                   local_idx,
+                   bd->coefficient_index,
+                   filt_state_bits,
+                   (float)a0,
+                   (float)b0,
+                   0.0f,
+                   0.0f,
+                   prev_pressure,
+                   next_pressure);
+#pragma unroll
+        for (int k = 0; k != CANONICAL_FILTER_ORDER; ++k) {
+            bd->filter_memory.array[k] = (filt_real)0;
+        }
         filt_state = 0;
     }
 
@@ -369,6 +457,30 @@ void ghost_point_pressure_update(
         atomic_or(error_flag, id_nan_error);
         record_nan(debug_info,
                    3,
+                   global_index,
+                   boundary_index,
+                   local_idx,
+                   bd->coefficient_index,
+                   (float)filt_state,
+                   (float)a0,
+                   (float)b0,
+                   (float)diff,
+                   (float)filter_input,
+                   prev_pressure,
+                   next_pressure);
+    }
+    bool local_clamped = false;
+#pragma unroll
+    for (int k = 0; k != CANONICAL_FILTER_ORDER; ++k) {
+        const float value = (float)local_memory.array[k];
+        if (!isfinite(value) || fabs(value) > kFilterMemoryLimit) {
+            local_memory.array[k] = (filt_real)0;
+            local_clamped = true;
+        }
+    }
+    if (local_clamped) {
+        record_nan(debug_info,
+                   11,
                    global_index,
                    boundary_index,
                    local_idx,
@@ -631,7 +743,13 @@ BOUNDARY_TEMPLATE(3);
             global CAT(boundary_data_array_, dims_count) * boundary_storage,          \
             const global coefficients_canonical* boundary_coefficients,                \
             volatile global int* error_flag,                                           \
-            global int* debug_info) {                                                  \
+            global int* debug_info,                                                    \
+            const uint trace_target,                                                   \
+            __global trace_record_t* trace_records,                                    \
+            __global uint* trace_head,                                                 \
+            const uint trace_capacity,                                                 \
+            const uint trace_enabled,                                                  \
+            const uint step_index) {                                                   \
         const uint work_index = (uint)get_global_id(0);                                \
         const uint global_index = boundary_nodes[work_index];                          \
         const condensed_node node = nodes[global_index];                               \
@@ -649,6 +767,7 @@ BOUNDARY_TEMPLATE(3);
                 boundary_storage + boundary_index;                                     \
         const float next_pressure = next[global_index];                                \
         const float prev_pressure = previous_history[global_index];                    \
+        const float current_pressure = current[global_index];                          \
         const int3 locator = to_locator(global_index, grid_dimensions);                \
         CAT(InnerNodeDirections, dims_count) ind =                                     \
                 CAT(get_inner_node_directions_, dims_count)(node.boundary_type);       \
@@ -668,6 +787,7 @@ BOUNDARY_TEMPLATE(3);
             global boundary_data* bd = bdat->array + local_idx;                        \
             const global coefficients_canonical* boundary =                            \
                     boundary_coefficients + bd->coefficient_index;                     \
+            const float fs0_in = bd->filter_memory.array[0];                           \
             const float inner_pressure =                                               \
                     get_inner_pressure(nodes,                                          \
                                        current,                                        \
@@ -675,6 +795,24 @@ BOUNDARY_TEMPLATE(3);
                                        grid_dimensions,                                \
                                        pd,                                             \
                                        error_flag);                                    \
+            if (trace_enabled && trace_target == global_index) {                       \
+                trace_write(trace_records,                                             \
+                            trace_head,                                               \
+                            trace_capacity,                                           \
+                            trace_enabled,                                            \
+                            CAT(TRACE_KIND_BOUNDARY_, dims_count),                    \
+                            step_index,                                               \
+                            global_index,                                             \
+                            (uint)local_idx,                                          \
+                            prev_pressure,                                            \
+                            current_pressure,                                         \
+                            next_pressure,                                            \
+                            fs0_in,                                                   \
+                            fs0_in,                                                   \
+                            0.0f,                                                     \
+                            boundary->a[0],                                           \
+                            boundary->b[0]);                                          \
+            }                                                                          \
             ghost_point_pressure_update(0x12345678u,                                   \
                                         next_pressure,                                \
                                         prev_pressure,                                \
@@ -687,6 +825,25 @@ BOUNDARY_TEMPLATE(3);
                                         boundary_index,                               \
                                         local_idx,                                    \
                                         0xA5A5A5A5u);                                 \
+            if (trace_enabled && trace_target == global_index) {                       \
+                const float fs0_out = bd->filter_memory.array[0];                     \
+                trace_write(trace_records,                                             \
+                            trace_head,                                               \
+                            trace_capacity,                                           \
+                            trace_enabled,                                            \
+                            CAT(TRACE_KIND_BOUNDARY_, dims_count),                    \
+                            step_index,                                               \
+                            global_index,                                             \
+                            (uint)local_idx,                                          \
+                            prev_pressure,                                            \
+                            current_pressure,                                         \
+                            next_pressure,                                            \
+                            fs0_in,                                                   \
+                            fs0_out,                                                  \
+                            0.0f,                                                     \
+                            boundary->a[0],                                           \
+                            boundary->b[0]);                                          \
+            }                                                                          \
         }                                                                              \
     }
 
@@ -820,7 +977,13 @@ kernel void condensed_waveguide(
         const global coefficients_canonical* boundary_coefficients,
         volatile global int* error_flag,
         global int* debug_info,
-        const uint num_prev) {
+        const uint num_prev,
+        const uint trace_target,
+        __global trace_record_t* trace_records,
+        __global uint* trace_head,
+        const uint trace_capacity,
+        const uint trace_enabled,
+        const uint step_index) {
     const size_t index = get_global_id(0);
 
     if (index >= num_prev) {
@@ -837,6 +1000,7 @@ kernel void condensed_waveguide(
     const int3 locator = to_locator(index, dimensions);
 
     const float prev_pressure = previous[index];
+    const float current_pressure = current[index];
     const float next_pressure = next_waveguide_pressure(node,
                                                         nodes,
                                                         prev_pressure,
@@ -854,6 +1018,25 @@ kernel void condensed_waveguide(
     if (isinf(next_pressure)) {
         atomic_or(error_flag, id_inf_error);
     }
+    if (trace_enabled && trace_target == (uint)index) {
+        trace_write(trace_records,
+                    trace_head,
+                    trace_capacity,
+                    trace_enabled,
+                    TRACE_KIND_PRESSURE,
+                    step_index,
+                    (uint)index,
+                    0u,
+                    prev_pressure,
+                    current_pressure,
+                    next_pressure,
+                    0.0f,
+                    0.0f,
+                    0.0f,
+                    0.0f,
+                    0.0f);
+    }
+
     if (isnan(next_pressure)) {
         record_pressure_nan(debug_info,
                             100,

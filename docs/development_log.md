@@ -2,12 +2,32 @@
 
 This file tracks iterative progress while porting and validating Wayverb on Apple Silicon Macs. New entries should be appended to the top so the latest work is easiest to find.
 
+## 2025-11-05 — Boundary filter guard rails
+
+- Hardened `ghost_point_pressure_update` against fp32 overflow: every canonical filter tap is now checked for finiteness and clamped back to zero when its magnitude exceeds `1e30`, so runaway boundary memories no longer explode to `inf`.
+- Clamp events are logged via `record_nan` codes 10/11 without raising the global error flag, keeping the new trace buffer informative while allowing the simulation to advance.
+- Regression smoke (`apple_silicon_regression` with `WAYVERB_TRACE_NODE=30494993`) now marches past the former step-8381 NaN; large filter states are reset but the kernel stays finite.
+
+## 2025-11-05 — Geometry not watertight (finding) + tooling
+
+- Discovered the working scene (pyramid_twisted_minor.obj) is not watertight; boundary_edges > 0 and non‑manifold edges present. This explains historical NaN at trihedrals and unstable reflection visualisation.
+- Added Geometry section in UI (Analyze, Sanitize on render, epsilon) to report topology (zero‑area, duplicates, boundary/non‑manifold, watertight) and optionally weld/remove degenerates before a run.
+- Added headless pre‑sanitizer using Python trimesh (scripts/sanitize_mesh.py) and wired it to scripts/run_regression.sh via WAYVERB_PRE_SANITIZE, WELD_EPS, FILL_HOLES, VOXEL_PITCH.
+- Improved diagnostic logging when final audio is silent: per‑channel max and non‑zero counts printed before raising “All channels are silent”.
+- Crash reporter installed (~/Library/Logs/Wayverb or WAYVERB_LOG_DIR) to capture signal + backtrace + last engine status; app logs go to build/logs/app/* when launched via tools/run_wayverb.sh.
+
 ## 2025-03-10 — Coefficient sanitization & fallback
 
 - Detect all-zero or near-singular canonical coefficient sets when constructing `waveguide::vectors` and replace them with a rigid-wall fallback (`b0 = 1`, remaining taps zero); emit a warning with the number of patched entries so bad material data is visible but non-fatal.
 - Added a defensive early-out in `ghost_point_pressure_update` for the (now rare) case where both `a0` and `b0` arrive as ~0 on device, ensuring the boundary filter stays benign even if host sanitization is bypassed.
 - Updated the CPU `boundary_probe` helper to mirror the new guards, keeping host/GPU diagnostics in sync.
 - Full regression still fails because coefficient set 0 loaded from disk is empty — next action is to regenerate the surface data or confirm the neutral material mapping so we can complete the Apple Silicon smoke test.
+
+## 2025-03-11 — GPU trace instrumentation
+
+- Added optional device-wide tracing infrastructure. When `WAYVERB_TRACE_NODE` is set, the pressure kernel and all boundary update kernels log per-step records (kind, step, pressure values, filter state before/after) into a global ring buffer.
+- Host code now allocates `trace_buffer`/`trace_head` and feeds step index and trace target into each kernel invocation; this enables later GPU↔CPU replay for suspect nodes (e.g., 30494993).
+- Kept existing stage callbacks (`WAYVERB_WG_TRACE`) separate so high-level stage logs continue to work; trace data is inactive unless explicitly requested.
 
 ## 2025-03-09 (late, resumed) — Dedicated boundary kernels
 

@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bempp-cl"
+version = "0.4.2"
+authors = [
+    { name = "Timo Betcke", email="timo.betcke@gmail.com" },
+    { name = "Matthew Scroggs", email="bempp@mscroggs.co.uk" }
+]
+description = "The Bempp boundary element library"
+readme = "README.md"
+requires-python = ">=3.8.0"
+license = { file = "LICENSE" }
+dependencies = ["numpy", "numba", "meshio", "scipy"]
+
+[project.urls]
+homepage = "https://bempp.com"
+repository = "https://github.com/bempp/bempp-cl"
+
+[project.optional-dependencies]
+docs = ["sphinx-autoapi"]
+optional = ["matplotlib"]
+style = ["pydocstyle", "ruff"]
+test = ["pytest", "pytest-xdist", "bempp-cl[optional]"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["bempp_cl*", "*.npz", "*.cl", "*.h"]
+
+[tool.setuptools.package-data]
+"*" = ["*.npz", "*.cl", "*.h"]
+
+[tool.ruff]
+line-length = 120
+indent-width = 4
+lint.ignore = ["E203", "E731"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"shapes.py" = ["E501"]
+"examples/*" = ["E402", "E501"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+

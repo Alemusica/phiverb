@@ -255,6 +255,22 @@ void complete_engine::do_run(core::compute_context compute_context,
                                       make_iterator(end(all_channels)));
 
             if (max_mag == 0.0f) {
+                // Detailed diagnostics for silent outputs
+                const float eps = 1.0e-12f;
+                std::cerr << "[combined] All channels silent. Diagnostics:" << '\n';
+                for (size_t ci = 0; ci < all_channels.size(); ++ci) {
+                    const auto& ch = all_channels[ci];
+                    float local_max = 0.0f;
+                    size_t nonzero = 0;
+                    for (const auto& s : ch.data) {
+                        const float a = std::abs(s);
+                        if (a > local_max) local_max = a;
+                        if (a > eps) ++nonzero;
+                    }
+                    std::cerr << "  channel[" << ci << "] file='" << ch.file_name
+                              << "' max=" << local_max
+                              << " nonzero_samples=" << nonzero << '\n';
+                }
                 throw std::runtime_error{"All channels are silent."};
             }
 
