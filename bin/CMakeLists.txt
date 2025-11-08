@@ -18,3 +18,7 @@ add_subdirectory(rt60)
 add_subdirectory(apple_silicon_regression)
 add_subdirectory(boundary_probe)
 add_subdirectory(layout_probe)
+add_subdirectory(sanitize_mesh)
+add_subdirectory(render_binaural)
+
+add_subdirectory(wayverb_cli)
