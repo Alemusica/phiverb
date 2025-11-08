@@ -14,13 +14,20 @@ struct alignas(1 << 4) reflection final {
                           //  path (like a \0 in a char*)
     cl_char receiver_visible;  //  whether or not the receiver is visible from
                                //  this point
+    cl_char diffuse;      //  whether this bounce sampled the diffuse BRDF
+    cl_char _padding;     //  explicit padding to keep the following floats aligned
+    cl_float sample_pdf;  //  pdf used for the sampled outgoing direction
+    cl_float cos_theta;   //  abs(dot(normal, outgoing)) used for throughput
 };
 
 constexpr auto to_tuple(const reflection& x) {
     return std::tie(x.position,
                     x.triangle,
                     x.keep_going,
-                    x.receiver_visible);
+                    x.receiver_visible,
+                    x.diffuse,
+                    x.sample_pdf,
+                    x.cos_theta);
 }
 
 constexpr bool operator==(const reflection& a, const reflection& b) {

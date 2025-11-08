@@ -88,7 +88,23 @@ kernel void stochastic(const global reflection* reflections,
             absorption_to_energy_reflectance(reflective_surface.absorption);
 
     const bands_type last_volume = stochastic_path[thread].volume;
-    const bands_type outgoing = last_volume * reflectance;
+    const bands_type total_reflected = last_volume * reflectance;
+    const bands_type diffuse_fraction = reflective_surface.scattering;
+    const bands_type diffuse_energy_total =
+            scattered(total_reflected, diffuse_fraction);
+    const bands_type specular_energy =
+            specular(total_reflected, diffuse_fraction);
+
+    const float cos_theta = fmax(reflections[thread].cos_theta, 0.0f);
+    const float sample_pdf = reflections[thread].diffuse
+                                     ? fmax(reflections[thread].sample_pdf, 1e-6f)
+                                     : 1.0f;
+    const bands_type diffuse_brdf =
+            reflectance * diffuse_fraction * (1.0f / M_PI_F);
+    const bands_type diffuse_throughput =
+            last_volume * diffuse_brdf * (cos_theta / sample_pdf);
+    const bands_type outgoing = reflections[thread].diffuse ? diffuse_throughput
+                                                            : specular_energy;
 
     const float3 last_position = stochastic_path[thread].position;
     const float3 this_position = reflections[thread].position;
@@ -118,7 +134,7 @@ kernel void stochastic(const global reflection* reflections,
     }
 
     //  stochastic output
-    if (reflections[thread].receiver_visible) {
+    if (reflections[thread].receiver_visible && reflections[thread].diffuse) {
         const float3 to_receiver = receiver - this_position;
         const float to_receiver_distance = length(to_receiver);
         const float total_distance = this_distance + to_receiver_distance;
@@ -142,8 +158,7 @@ kernel void stochastic(const global reflection* reflections,
         const float angle_correction = 1 - sqrt(1 - sin_y * sin_y);
 
         const bands_type output_volume =
-                angle_correction * 2 * cos_angle *
-                scattered(outgoing, reflective_surface.scattering);
+                angle_correction * 2 * cos_angle * diffuse_energy_total;
 
         //  set output
         stochastic_output[thread] =

@@ -46,7 +46,7 @@ public:
                                  rays_ * sizeof(reflection)}
             , rng_buffer_{cc.context,
                           CL_MEM_READ_WRITE,
-                          rays_ * 2 * sizeof(cl_float)} {
+                          rays_ * 3 * sizeof(cl_float)} {
         program{cc_}.get_init_reflections_kernel()(
                 cl::EnqueueArgs{queue_, cl::NDRange{rays_}},
                 reflection_buffer_);
@@ -61,7 +61,7 @@ public:
 
     /// The constant buffer size required per parallel ray.
     static constexpr auto get_per_ray_size() {
-        return sizeof(core::ray) + sizeof(reflection) + 2 * sizeof(cl_float);
+        return sizeof(core::ray) + sizeof(reflection) + 3 * sizeof(cl_float);
     }
 
 private:

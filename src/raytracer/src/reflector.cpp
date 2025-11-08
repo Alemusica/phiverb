@@ -12,13 +12,14 @@ namespace {
 
 util::aligned::vector<cl_float> get_direction_rng(size_t num) {
     util::aligned::vector<cl_float> ret;
-    ret.reserve(2 * num);
+    ret.reserve(3 * num);
     std::default_random_engine engine{std::random_device()()};
+    std::uniform_real_distribution<float> distribution{0.0f, 1.0f};
 
     for (auto i = 0ul; i != num; ++i) {
-        const core::direction_rng rng(engine);
-        ret.emplace_back(rng.get_z());
-        ret.emplace_back(rng.get_theta());
+        ret.emplace_back(distribution(engine));
+        ret.emplace_back(distribution(engine));
+        ret.emplace_back(distribution(engine));
     }
 
     return ret;

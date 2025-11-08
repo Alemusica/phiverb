@@ -1,0 +1,11 @@
+{
+  "name": "aula_medium",
+  "dims_m": [12.0, 8.0, 4.0],
+  "volume_m3": 384.0,
+  "surface_m2": 352.0,
+  "alpha_bar_1k": 0.30,
+  "air_m_nepers_per_m": 0.0,
+  "materials": {
+    "mix": "PTB:<SOSTITUISCI>"
+  }
+}

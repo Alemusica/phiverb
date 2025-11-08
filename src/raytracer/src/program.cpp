@@ -53,7 +53,11 @@ kernel void init_reflections(global reflection* reflections) {
     reflections[thread] = (reflection){(float3)(0),
                                        ~(uint)0,
                                        (char)true,
-                                       (char)0};
+                                       (char)0,
+                                       (char)0,
+                                       (char)0,
+                                       0.0f,
+                                       0.0f};
 }
 
 kernel void reflections(global ray* rays,  //  ray
@@ -129,27 +133,35 @@ kernel void reflections(global ray* rays,  //  ray
                                      vertices,
                                      closest_intersection.index);
 
+    //  determine scattering behaviour
+    const float u_component = rng[3 * thread + 0];
+    const float u1 = rng[3 * thread + 1];
+    const float u2 = rng[3 * thread + 2];
+    const surface s = surfaces[closest_triangle.surface];
+    const float scatter_prob = clamp(mean(s.scattering), 0.0f, 1.0f);
+
+    float3 outgoing_dir = specular;
+    float sample_pdf = 1.0f;
+    float cos_theta = fabs(dot(tnorm, specular));
+    const char choose_diffuse = (char)(u_component < scatter_prob);
+
+    if (choose_diffuse) {
+        outgoing_dir = lambert_sample(tnorm, u1, u2, &cos_theta);
+        sample_pdf = fmax(lambert_pdf(cos_theta), 1e-6f);
+    }
+
     //  now we can populate the output
     reflections[thread] = (reflection){intersection_pt,
                                        closest_intersection.index,
                                        true,
-                                       is_intersection};
-
-    //  we also need to find the next ray to trace
-
-    //  find the scattering
-    //  get random values to influence direction of reflected ray
-    const float z = rng[2 * thread + 0];
-    const float theta = rng[2 * thread + 1];
-    const float3 random_unit_vector = sphere_point(z, theta);
-    //  scattering coefficient is the average of the diffuse coefficients
-    const surface s = surfaces[closest_triangle.surface];
-    const float scatter = mean(s.scattering);
-    const float3 scattering =
-            lambert_scattering(specular, tnorm, random_unit_vector, scatter);
+                                       is_intersection,
+                                       choose_diffuse,
+                                       0,
+                                       sample_pdf,
+                                       cos_theta};
 
     //  find the next ray to trace
-    rays[thread] = (ray){intersection_pt, scattering};
+    rays[thread] = (ray){intersection_pt, normalize(outgoing_dir)};
 }
 
 )";

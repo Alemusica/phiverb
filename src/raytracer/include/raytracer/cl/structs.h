@@ -105,6 +105,10 @@ typedef struct {
     uint triangle;
     char keep_going;
     char receiver_visible;
+    char diffuse;
+    char _padding;
+    float sample_pdf;
+    float cos_theta;
 } reflection;
 )";
 };

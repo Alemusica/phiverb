@@ -4,6 +4,7 @@
 #include "raytracer/simulation_parameters.h"
 #include "raytracer/stochastic/finder.h"
 #include "raytracer/stochastic/postprocessing.h"
+#include "raytracer/reflection_processor/mis_weights.h"
 
 #include "core/attenuator/hrtf.h"
 #include "core/environment.h"
@@ -53,8 +54,9 @@ public:
                                size_t total_rays,
                                size_t max_image_source_order,
                                float receiver_radius,
-                               float histogram_sample_rate,
-                               size_t group_items)
+                                float histogram_sample_rate,
+                                size_t group_items,
+                                float mis_delta_pdf)
             : finder_(cc,
                       group_items,
                       source,
@@ -65,6 +67,8 @@ public:
             , receiver_{receiver}
             , environment_{environment}
             , max_image_source_order_{max_image_source_order}
+            , mis_weights_{compute_mis_weights(total_rays, mis_delta_pdf)}
+            , mis_enabled_{total_rays != 0}
             , histogram_{histogram_sample_rate} {}
 
     template <typename It>
@@ -85,10 +89,10 @@ public:
             util::aligned::vector<intermediate_impulse> ret;
             ret.reserve(output.stochastic.size() + output.specular.size());
 
-            const auto push_vector = [&](const auto& vec) {
+            const auto push_vector = [&](const auto& vec, float weight = 1.0f) {
                 for (const auto& impulse : vec) {
                     ret.emplace_back(intermediate_impulse{
-                            impulse.volume,
+                            impulse.volume * weight,
                             impulse.distance / environment_.speed_of_sound,
                             glm::normalize(core::to_vec3{}(impulse.position) -
                                            receiver_)});
@@ -96,8 +100,9 @@ public:
             };
 
             push_vector(output.stochastic);
-            if (max_image_source_order_ <= step) {
-                push_vector(output.specular);
+            const auto spec_weight = specular_weight(step);
+            if (spec_weight > 0.0f) {
+                push_vector(output.specular, spec_weight);
             }
 
             return ret;
@@ -117,7 +122,19 @@ private:
     glm::vec3 receiver_;
     core::environment environment_;
     size_t max_image_source_order_;
+    mis_weights mis_weights_;
+    bool mis_enabled_;
     Histogram histogram_;
+
+    float specular_weight(size_t step) const {
+        if (max_image_source_order_ <= step) {
+            return 1.0f;
+        }
+        if (!mis_enabled_) {
+            return 0.0f;
+        }
+        return mis_weights_.path_tracer;
+    }
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -132,7 +149,8 @@ public:
                          size_t total_rays,
                          size_t max_image_source_order,
                          float receiver_radius,
-                         float histogram_sample_rate)
+                         float histogram_sample_rate,
+                         float mis_delta_pdf)
             : cc_{cc}
             , source_{source}
             , receiver_{receiver}
@@ -141,6 +159,7 @@ public:
             , max_image_source_order_{max_image_source_order}
             , receiver_radius_{receiver_radius}
             , histogram_sample_rate_{histogram_sample_rate}
+            , mis_delta_pdf_{mis_delta_pdf}
             , histogram_{histogram_sample_rate} {}
 
     stochastic_group_processor<Histogram> get_group_processor(
@@ -153,7 +172,8 @@ public:
                 max_image_source_order_,
                 receiver_radius_,
                 histogram_sample_rate_,
-                num_directions};
+                num_directions,
+                mis_delta_pdf_};
     }
 
     void accumulate(const stochastic_group_processor<Histogram>& processor) {
@@ -171,6 +191,7 @@ private:
     size_t max_image_source_order_;
     float receiver_radius_;
     float histogram_sample_rate_;
+    float mis_delta_pdf_;
 
     Histogram histogram_;
 };
@@ -182,7 +203,8 @@ public:
     make_stochastic_histogram(size_t total_rays,
                               size_t max_image_source_order,
                               float receiver_radius,
-                              float histogram_sample_rate);
+                              float histogram_sample_rate,
+                              float mis_delta_pdf = default_mis_delta_pdf);
 
     stochastic_processor<stochastic::energy_histogram> get_processor(
             const core::compute_context& cc,
@@ -198,6 +220,7 @@ private:
     size_t max_image_source_order_;
     float receiver_radius_;
     float histogram_sample_rate_;
+    float mis_delta_pdf_;
 };
 
 class make_directional_histogram final {
@@ -205,7 +228,8 @@ public:
     make_directional_histogram(size_t total_rays,
                                size_t max_image_source_order,
                                float receiver_radius,
-                               float histogram_sample_rate);
+                               float histogram_sample_rate,
+                               float mis_delta_pdf = default_mis_delta_pdf);
 
     stochastic_processor<stochastic::directional_energy_histogram<20, 9>>
     get_processor(
@@ -222,6 +246,7 @@ private:
     size_t max_image_source_order_;
     float receiver_radius_;
     float histogram_sample_rate_;
+    float mis_delta_pdf_;
 };
 
 }  // namespace reflection_processor
