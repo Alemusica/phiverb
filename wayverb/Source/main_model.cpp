@@ -197,10 +197,6 @@ private:
         }
 
         auto scene = project.get_scene_data();
-        // optional sanitization (controlled via owner main_model::geometry)
-        if (owner_ && owner_->geometry.sanitize) {
-            scene = wayverb::core::sanitize_geometry(scene, static_cast<float>(owner_->geometry.weld_epsilon));
-        }
         return scene_with_extracted_surfaces(scene, material_map);
     }
 
@@ -231,11 +227,6 @@ private:
 
     finished finished_;
     finished::scoped_connection finished_connection_;
-    // back reference for options access
-public:
-    void set_owner(main_model* o) { owner_ = o; }
-private:
-    main_model* owner_ = nullptr;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -245,9 +236,7 @@ main_model::main_model(const std::string& name)
         , material_presets{wayverb::combined::model::presets::materials}
         , capsule_presets{wayverb::combined::model::presets::capsules}
         , currently_open_file_{name}
-        , pimpl_{std::make_unique<impl>()} {
-    pimpl_->set_owner(this);
-}
+        , pimpl_{std::make_unique<impl>()} {}
 
 main_model::~main_model() noexcept = default;
 

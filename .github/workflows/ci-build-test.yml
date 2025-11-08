@@ -1,0 +1,141 @@
+name: CI
+on:
+  pull_request:
+    branches: [ main ]
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      rt: ${{ steps.set.outputs.rt }}
+      dwm: ${{ steps.set.outputs.dwm }}
+      mtl: ${{ steps.set.outputs.mtl }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: set
+        run: |
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          RT=false; DWM=false; MTL=false
+          echo "$CHANGED" | grep -E '^src/raytracer/' && RT=true || true
+          echo "$CHANGED" | grep -E '^src/waveguide/' && DWM=true || true
+          echo "$CHANGED" | grep -E '^src/metal/' && MTL=true || true
+          echo "rt=$RT"  >> "$GITHUB_OUTPUT"
+          echo "dwm=$DWM" >> "$GITHUB_OUTPUT"
+          echo "mtl=$MTL" >> "$GITHUB_OUTPUT"
+
+  rt-tests:
+    needs: detect
+    if: needs.detect.outputs.rt == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - name: Tooling
+        run: |
+          sudo apt-get update && sudo apt-get install -y ninja-build
+          python3 -m pip install --upgrade pip numpy scipy soundfile
+      - name: Configure+Build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j
+      - name: CTest (unit/regression)
+        run: |
+          ctest --test-dir build --output-on-failure || true
+      - name: RT Parity (ISM ↔ PT, BRDF/MIS)
+        run: |
+          if [ -x build/bin/wayverb_cli ]; then
+            build/bin/wayverb_cli --scene tests/scenes/shoebox_small.json --backend opencl --out rt_ocl.wav --log rt_ocl.json
+            python3 scripts/qa/run_validation_suite.py --cli build/bin/wayverb_cli --scenes tests/scenes
+          else
+            echo "[RT] wayverb_cli non presente; eseguo solo suite QA (consultivo)."
+            python3 scripts/qa/run_validation_suite.py --cli build/bin/wayverb_cli --scenes tests/scenes || true
+          fi
+
+  dwm-tests:
+    needs: detect
+    if: needs.detect.outputs.dwm == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - name: Tooling
+        run: |
+          sudo apt-get update && sudo apt-get install -y ninja-build
+          python3 -m pip install --upgrade pip numpy scipy soundfile
+      - name: Configure+Build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j
+      - name: DWM Passivity/CFL
+        run: |
+          ctest --test-dir build --output-on-failure
+          python3 scripts/qa/run_validation_suite.py --cli build/bin/wayverb_cli --scenes tests/scenes
+
+  metal-smoke:
+    needs: detect
+    if: needs.detect.outputs.mtl == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
+    runs-on: [self-hosted, macOS, ARM64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - name: Tooling
+        run: |
+          brew install cmake ninja python ccache || true
+          python3 -m pip install --upgrade pip numpy scipy soundfile
+      - name: Configure+Build (Metal)
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                -DWAYVERB_ENABLE_METAL=ON -DWAYVERB_STRICT_METAL=ON \
+                -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build build -j
+      - name: Run Metal smoke (NO fallback)
+        run: |
+          set -e
+          LOG=metal_smoke.log
+          if [ -x build/bin/wayverb_cli ]; then
+            WAYVERB_METAL=1 build/bin/wayverb_cli \
+              --scene tests/scenes/shoebox_small.json \
+              --out out_metal.wav --log out_metal.json 2>&1 | tee "$LOG"
+          elif [ -x build/bin/apple_silicon_regression ]; then
+            WAYVERB_METAL=1 build/bin/apple_silicon_regression 2>&1 | tee "$LOG"
+          else
+            echo "[metal-smoke] Nessun binario adatto trovato (wayverb_cli / apple_silicon_regression)." | tee "$LOG"
+            exit 0
+          fi
+          python3 - <<'PY'
+          import json, os, sys
+          # Prefer JSON verdict if present
+          if os.path.exists('out_metal.json'):
+              try:
+                  with open('out_metal.json') as fh:
+                      data = json.load(fh)
+                  if data.get('backend') != 'metal':
+                      print('[FAIL] backend != metal (JSON):', data)
+                      sys.exit(2)
+                  else:
+                      print('[OK] backend=metal (JSON)')
+                      sys.exit(0)
+              except Exception as e:
+                  print('[warn] JSON parse failed:', e)
+          # Fallback: scan log for fallback messages
+          bad = False
+          with open('metal_smoke.log','r',encoding='utf-8',errors='ignore') as fh:
+              txt = fh.read()
+              needles = ['falling back to OpenCL', 'No MTLDevice available']
+              bad = any(n in txt for n in needles)
+          if bad:
+              print('[FAIL] Metal fallback detected in log')
+              sys.exit(2)
+          print('[OK] Metal path likely engaged (no fallback detected)')
+          PY

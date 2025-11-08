@@ -76,5 +76,27 @@ inline void kernel_normalize(T& ret) {
     }
 }
 
+inline size_t count_non_finite(float t) {
+    return std::isfinite(t) ? 0u : 1u;
+}
+
+inline size_t count_non_finite(double t) {
+    return std::isfinite(t) ? 0u : 1u;
+}
+
+template <typename T>
+inline size_t count_non_finite(const T& t) {
+    size_t total = 0;
+    for (const auto& value : t) {
+        total += count_non_finite(value);
+    }
+    return total;
+}
+
+template <typename T>
+inline bool has_non_finite(const T& t) {
+    return count_non_finite(t) != 0;
+}
+
 }  // namespace core
 }  // namespace wayverb

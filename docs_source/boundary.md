@@ -27,6 +27,14 @@ evaluated and compared, to ensure equivalence.
 
 ## Geometric Implementation
 
+### 2025 status / design targets
+
+The current Raytracer workstreams target the *acoustic rendering equation* + multiple-importance sampling pipeline discussed nelle direttive GPT-5 Pro. In pratica questo implica:
+
+- **Energy-preserving BRDF**: speculare/diffuso devono rispettare \(f(\omega_i,\omega_o)\cos\theta_o / p(\omega_o)\) (Lambert 1/\pi, speculare = (1-α)(1-s)).
+- **Diffuse rain** obbligatorio: ogni riflessione genera la quota (1-α)·s verso i ricevitori visibili e va loggata (Schroder 5.20).
+- **Parità ISM/PT**: gli early devono combaciare entro ±1 sample/±0.5 dB. Le note legacy sotto sono da considerare solo come contesto storico.
+
 In Wayverb, surfaces may have different absorptions in each frequency band.
 Each ray starts with the same pressure in each band. During a specular
 reflection, the per-band absorptions are converted into per-band reflection
@@ -91,6 +99,13 @@ and also on the solid angle covered by the receiver.
 receiver.](images/diffuse_rain){#fig:diffuse_rain}
 
 ## DWM Implementation
+
+### 2025 status / design targets
+
+- **Sorgenti trasparenti/PCS**: niente hard/soft; si iniettano onde viaggianti e si rispetta Courant.
+- **SDF + Digital Impedance Filters**: i kernel non cercano triangoli in runtime, ma leggono SDF/precomputed DIF (anche su edge/corner).
+- **Guard-tag + fail-fast**: ogni NaN va azzerato, conteggiato e causa abort.
+- **SoA/Morton layout**: KW/LRS restano nel doc come storia; il solver  attuale usa SoA + DIF come da piano GPT-5.
 
 ### Possible Methods
 

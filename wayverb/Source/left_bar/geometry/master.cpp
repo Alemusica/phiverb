@@ -13,10 +13,18 @@ master::master(::main_model& model) : model_{model} {
     title_.setText("Geometry analysis", dontSendNotification);
     title_.setJustificationType(Justification::centredLeft);
 
+    instructions_.setText(
+            "1) Preprocess OBJ via tools/wayverb_mesh.py (sanitize, triangulate).\n"
+            "2) Keep cleaned meshes under geometrie_wayverb/.\n"
+            "3) Use Analyze to inspect the current project scene.",
+            dontSendNotification);
+    instructions_.setJustificationType(Justification::topLeft);
+    instructions_.setColour(Label::textColourId, Colours::lightgrey);
+    addAndMakeVisible(instructions_);
+
     addAndMakeVisible(report_);
     report_.setJustificationType(Justification::topLeft);
 
-    addAndMakeVisible(sanitize_toggle_);
     addAndMakeVisible(epsilon_edit_);
     epsilon_edit_.setText("1e-6");
     epsilon_edit_.setInputRestrictions(0, "0123456789eE.-");
@@ -27,40 +35,46 @@ master::master(::main_model& model) : model_{model} {
     addAndMakeVisible(open_logs_btn_);
     open_logs_btn_.addListener(this);
 
-    sync_from_model();
+    addAndMakeVisible(mesh_tools_btn_);
+    mesh_tools_btn_.addListener(this);
+
+    addAndMakeVisible(mesh_folder_btn_);
+    mesh_folder_btn_.addListener(this);
+
+    // Ensure the wrapper computes a non‑zero preferred height.
+    // PropertyPanel queries content.getHeight() when wrapped, so we must
+    // provide an initial size here; layout adapts in resized().
+    setSize(300, 260);
 }
 
 void master::resized() {
     auto b = getLocalBounds().reduced(4);
     title_.setBounds(b.removeFromTop(20));
-    sanitize_toggle_.setBounds(b.removeFromTop(24));
+    instructions_.setBounds(b.removeFromTop(72));
     auto row = b.removeFromTop(24);
     epsilon_edit_.setBounds(row.removeFromLeft(120));
     analyze_btn_.setBounds(row.removeFromLeft(100));
     open_logs_btn_.setBounds(row.removeFromLeft(160));
+    auto row2 = b.removeFromTop(28);
+    mesh_tools_btn_.setBounds(row2.removeFromLeft(220));
+    mesh_folder_btn_.setBounds(row2);
     report_.setBounds(b);
 }
 
 void master::buttonClicked(Button* b) {
     if (b == &analyze_btn_) {
-        apply_to_model();
         run_analysis();
     } else if (b == &open_logs_btn_) {
-        File dir{File::getSpecialLocation(File::userLibraryDirectory)
-                         .getChildFile("Logs/Wayverb")};
+        // Use home directory and append Library/Logs/Wayverb for portability
+        File dir{File::getSpecialLocation(File::userHomeDirectory)
+                         .getChildFile("Library/Logs/Wayverb")};
         dir.createDirectory();
         dir.revealToUser();
+    } else if (b == &mesh_tools_btn_) {
+        open_mesh_tools_doc();
+    } else if (b == &mesh_folder_btn_) {
+        reveal_mesh_folder();
     }
-}
-
-void master::sync_from_model() {
-    sanitize_toggle_.setToggleState(model_.geometry.sanitize, dontSendNotification);
-    epsilon_edit_.setText(String(model_.geometry.weld_epsilon));
-}
-
-void master::apply_to_model() {
-    model_.geometry.sanitize = sanitize_toggle_.getToggleState();
-    model_.geometry.weld_epsilon = epsilon_edit_.getText().getDoubleValue();
 }
 
 void master::run_analysis() {
@@ -77,6 +91,50 @@ void master::run_analysis() {
     report_.setText(text, dontSendNotification);
 }
 
+static File locate_repo_root() {
+    auto path = File::getSpecialLocation(File::currentApplicationFile);
+    // move from .../wayverb.app/Contents/MacOS/wayverb up to repo root
+    for (int i = 0; i < 12; ++i) {
+        if (path.getChildFile("docs/mesh_tools.md").existsAsFile() ||
+            path.getChildFile(".git").isDirectory()) {
+            return path;
+        }
+        const auto parent = path.getParentDirectory();
+        if (parent == path) {
+            break;
+        }
+        path = parent;
+    }
+    return {};
+}
+
+void master::open_mesh_tools_doc() {
+    if (auto root = locate_repo_root(); root.exists()) {
+        auto doc = root.getChildFile("docs/mesh_tools.md");
+        if (doc.existsAsFile()) {
+            doc.startAsProcess();
+            return;
+        }
+    }
+    AlertWindow::showMessageBoxAsync(AlertWindow::InfoIcon,
+                                     "Mesh tools",
+                                     "Could not locate docs/mesh_tools.md relative to this build. "
+                                     "Please open the repository and view docs/mesh_tools.md manually.");
+}
+
+void master::reveal_mesh_folder() {
+    if (auto root = locate_repo_root(); root.exists()) {
+        auto folder = root.getChildFile("geometrie_wayverb");
+        folder.createDirectory();
+        folder.revealToUser();
+        return;
+    }
+    AlertWindow::showMessageBoxAsync(AlertWindow::InfoIcon,
+                                     "Mesh folder",
+                                     "Could not locate geometrie_wayverb/. "
+                                     "If you are running outside the source tree, "
+                                     "open the folder manually.");
+}
+
 }  // namespace geometry
 }  // namespace left_bar
-
