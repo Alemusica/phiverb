@@ -3,12 +3,12 @@
 Operational contract for every agent (raytracer `PhiVerb-rt`, waveguide `PhiVerb-dwm`) working on Wayverb. Keep this file open while you work; update it whenever process requirements change. Legacy docs (es. materiale originale di Reuben) sono solo “mappe” storiche: consultale per capire come siamo arrivati qui, ma non per ripristinare workflow/test superati. Implementazioni e QA devono sempre seguire gli standard 2025 descritti in Runbook + Action Plan.
 
 ## 1. Repositories, Branches, Worktrees
-- Clone once, then create the mandated worktrees:
-  - `git worktree add ../PhiVerb-rt rt/<feature>` (raytracer agent).
-  - `git worktree add ../PhiVerb-dwm dwm/<feature>` (waveguide agent).
-- All development happens in those worktrees/branches; `infra/control-room` stays untouched except for documentation updates.
-- Each branch name must start with `rt/` or `dwm/` and reference an Action Plan ID (e.g. `rt/AP-RT-002-diffuse-rain`).
-- If you need code from `infra/control-room`, cherry-pick it into your branch and cite the original commits in your PR checklist (see §4).
+- Tutto il lavoro avviene in worktree dedicati: `infra/control-room` resta solo per documentazione/processo.
+- Usa lo script `scripts/agents/spawn_worktree.sh <path> <branch> [base]` per creare nuovi ambienti e aprirli in VS Code (default base = `infra/control-room`).
+  - Esempio: `scripts/agents/spawn_worktree.sh ../PhiVerb-rt rt/AP-RT-002-diffuse-rain`.
+  - Dopo la creazione: `cd` nel worktree, esegui `git pull origin <base>`, leggi i file richiesti e registra subito la prima nota (`log_note.sh`).
+- I branch devono iniziare con il prefisso del modulo (`rt/`, `dwm/`, `audio/`, ecc.) e includere l’ID dell’Action Plan.
+- Se servono commit storici, usa `git cherry-pick` e documentalo nella PR (vedi §5).
 
 ## 2. Mandatory Tooling Loop
 Run everything from the workspace root unless specified.
@@ -53,11 +53,13 @@ Every PR must fill out:
 
 PRs missing any field are not reviewed.
 
-## 6. Salvaging Existing Work
+## 6. Salvaging & Tracking Progress
 To keep previous efforts:
 1. Identify useful commits (BRDF fixes, guard-tag instrumentation, etc.) and cherry-pick or merge them into your `rt/...` or `dwm/...` branch.
 2. In `docs/action_plan.md`, mark the relevant checklist item as completed and note `(imported from <commit>)`.
 3. Update `docs/archeology.md` “Cluster principali” with a short entry describing what legacy work was retained and where it now lives.
+
+Quando completi una voce della checklist in `docs/action_plan.md`, apri il file e sostituisci `[ ]` con `[x]`, citando i log (`build/logs/...`) e il commit relativo. Registra la chiusura anche nel dev diary.
 
 ## 7. Evidence Requirements
 - **Raytracer agent** must attach:

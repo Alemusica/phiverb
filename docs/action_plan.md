@@ -120,6 +120,24 @@ dell'avanzamento. Consultalo insieme alla [Runbook](agent_runbook.md): quando co
 
 ---
 
+## 6. Spatial Audio Framework / Binaural Decoding
+
+**File principali**
+- `docs/audio_spatial_framework_plan.md`
+- `bin/render_binaural`, `Spatial_Audio_Framework/*`
+- `src/waveguide/postprocess`, `src/raytracer/postprocess`
+
+**Checklist**
+- [ ] Aggiornare il piano (docs/audio_spatial_framework_plan.md) con API, dipendenze e risultati della ricerca (eventuale ASK/GPT-Pro documentato).
+- [ ] Integrare il decoder aggiornato mantenendo compatibilità con waveguide/raytracer (formati IR, pipeline FOA/HOA).
+- [ ] Aggiornare tooling/QA (`scripts/qa/*`) con test ILD/ITD/Txx e loggare ogni run (`build/logs/...`).
+
+**Verifiche**
+- Log binaurali allegati alla PR (validation/regressione con percorsi esatti).
+- `docs/archeology.md` e `docs/audio_spatial_framework_plan.md` aggiornati con stato, link ai log e riferimenti alle entry del dev diary.
+
+---
+
 ### Come usare questo file
 1. Prima di iniziare un task, trova la voce corrispondente e assicurati di rispettare i criteri.
 2. Una volta completato, modifica la casella checklist (✅) e annota eventuali dettagli/commit/log.
