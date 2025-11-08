@@ -1,0 +1,15 @@
+name: Ask Gate
+on:
+  pull_request:
+    branches: [ main ]
+concurrency:
+  group: ask-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  ask-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for open ASK requests
+        run: python3 scripts/ask/gate.py

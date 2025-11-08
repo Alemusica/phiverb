@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+set -euo pipefail
+TITLE="ASK: specifica richiesta"
+QUESTION=""
+TOPIC="general"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --title) TITLE="$2"; shift 2;;
+    --question) QUESTION="$2"; shift 2;;
+    --topic) TOPIC="$2"; shift 2;;
+    *) echo "arg sconosciuto: $1"; exit 2;;
+  esac
+done
+STAMP="$(date +%Y%m%d-%H%M%S)"
+BRANCH="$(git rev-parse --abbrev-ref HEAD || echo unknown)"
+SHA="$(git rev-parse --short HEAD || echo unknown)"
+ASKFILE=".codex/NEED-INFO/${STAMP}--${TOPIC}.md"
+mkdir -p .codex/NEED-INFO
+DIFFSTAT="$(git diff --stat || true)"
+LASTTEST=""
+if [[ -f build/Testing/Temporary/LastTest.log ]]; then
+  LASTTEST="$(tail -n 120 build/Testing/Temporary/LastTest.log || true)"
+fi
+QA_LOG="$(ls -t scripts/qa/*.log 2>/dev/null | head -n1 || true)"
+QA_TAIL=""
+[[ -n "$QA_LOG" ]] && QA_TAIL="$(tail -n 80 "$QA_LOG" || true)"
+cat > "$ASKFILE" <<MD
+# ASK — $TITLE
+**Topic:** $TOPIC  
+**Branch:** $BRANCH @ $SHA
+
+## Background (riassunto)
+<!-- cosa stiamo facendo e perché serve questa info (5–10 frasi) -->
+
+## Exact question(s)
+$QUESTION
+
+## Constraints / Acceptance
+<!-- limiti numerici, formule attese, tempo max, criteri PASS -->
+
+## Technical context
+- **Policy:** vedi .codex/POLICY_ASK.md
+- **Diffstat (parziale):**
+```
+$DIFFSTAT
+```
+- **LastTest.log (coda):**
+```
+$LASTTEST
+```
+- **QA log (coda):**
+```
+$QA_TAIL
+```
+
+## Resolution (to fill by reviewer/GPT-5 Pro)
+<!-- incolla qui la risposta finale e i riferimenti; poi l'agent applica e chiude -->
+MD
+echo "[ASK] creato $ASKFILE"
+if command -v gh >/dev/null 2>&1; then
+  BODY="$(mktemp)"; cp "$ASKFILE" "$BODY"
+  gh issue create --title "$TITLE" --body-file "$BODY" --label "needs-info,ask" || true
+  rm -f "$BODY"
+else
+  echo "[ASK] gh non trovato: apri manualmente un'Issue e incolla il contenuto di $ASKFILE"
+fi
+git add "$ASKFILE"
+git commit -m "ask: $TITLE [topic:$TOPIC]"
+echo "[ASK] commit effettuato; apri/aggiorna la PR. Il gate la bloccherà finché aperta."
