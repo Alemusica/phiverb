@@ -1,6 +1,7 @@
 #pragma once
 
 #include "waveguide/postprocessor/directional_receiver.h"
+#include "core/attenuator/hrtf.h"
 
 #include "core/attenuator/null.h"
 
@@ -17,9 +18,23 @@ auto attenuate(const Method& method,
     using std::sqrt;
     using std::copysign;
     using std::pow;
+    const auto len = glm::length(i.intensity);
+    // If intensity is effectively zero (node at symmetry or quiescent),
+    // fall back to omni pressure to avoid producing a numerically silent IR.
+    constexpr float eps = 1.0e-12f;
+    if (len < eps) {
+        if constexpr (std::is_same_v<Method, wayverb::core::attenuator::hrtf>) {
+            // Build a flat multiband amplitude equal to the omni pressure.
+            std::array<double, 8> flat{};
+            flat.fill(static_cast<double>(i.pressure));
+            return wayverb::core::attenuator::to_cl_float_vector(flat);
+        } else {
+            return i.pressure;  // omni fallback (single-band)
+        }
+    }
     const auto att = attenuation(method, -i.intensity);
-    const auto intensity = glm::length(i.intensity) * pow(att, 2.0f);
-    return copysign(sqrt(intensity * Z), i.pressure);  //  scaled method
+    const auto intensity = len * pow(att, 2.0f);
+    return copysign(sqrt(intensity * Z), i.pressure);  // scaled method
 }
 
 /// For the null attenuator, we just extract the absolute/omni pressure.

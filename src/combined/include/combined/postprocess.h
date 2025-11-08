@@ -6,10 +6,14 @@
 #include "waveguide/config.h"
 #include "waveguide/postprocess.h"
 
+#include "core/dsp_vector_ops.h"
 #include "core/sinc.h"
 #include "core/sum_ranges.h"
 
 #include "audio_file/audio_file.h"
+#include <cmath>
+#include <cstdlib>
+#include <iostream>
 
 namespace wayverb {
 namespace combined {
@@ -96,8 +100,66 @@ auto postprocess(const combined_results<Histogram>& input,
                                                    max_frequency_functor{});
     };
 
+    auto has_energy = [](const auto& v) {
+        for (const auto& s : v) {
+            if (std::abs(s) > 1.0e-15f) return true;
+        }
+        return false;
+    };
+
+    const auto log_non_finite = [](const char* label, const auto& buffer) {
+        const auto count = core::count_non_finite(buffer);
+        if (count != 0) {
+            std::cerr << "[combined] detected " << count
+                      << " non-finite samples in " << label << '\n';
+        }
+    };
+
+    const auto log_channel_stats = [](const char* label, const auto& buffer) {
+        size_t non_zero = 0;
+        float max_mag = 0.0f;
+        for (auto sample : buffer) {
+            const auto mag = std::abs(sample);
+            if (mag > 0.0f) {
+                ++non_zero;
+                max_mag = std::max(max_mag, mag);
+            }
+        }
+        std::cerr << "[combined] " << label << ": non-zero samples=" << non_zero
+                  << '/' << buffer.size() << " max|x|=" << max_mag << '\n';
+    };
+
+    log_non_finite("waveguide postprocess output", waveguide_processed);
+    log_non_finite("raytracer postprocess output", raytracer_processed);
+    log_channel_stats("waveguide postprocess output", waveguide_processed);
+    log_channel_stats("raytracer postprocess output", raytracer_processed);
+
+    const bool allow_silent_fallback =
+            std::getenv("WAYVERB_ALLOW_SILENT_FALLBACK") != nullptr;
+
     if (input.waveguide.empty()) {
-        return raytracer_processed;
+        auto out = raytracer_processed;
+        if (!has_energy(out)) {
+            log_channel_stats("raytracer-only output", out);
+            if (!allow_silent_fallback) {
+                std::cerr << "[combined] ERROR: raytracer+waveguide produced "
+                             "silent IR (waveguide path empty).\n";
+                throw std::runtime_error{"All channels are silent."};
+            }
+            // Fallback: inject direct-path free-field impulse to avoid silent IRs.
+            const auto d = distance(source_position, receiver_position);
+            const auto idx = static_cast<size_t>(std::floor(
+                    d * output_sample_rate / environment.speed_of_sound));
+            const size_t n = std::max<size_t>(out.size(), idx + 1);
+            out.resize(n, 0.0f);
+            const float amp = static_cast<float>(1.0 / std::max<double>(1.0e-6, d));
+            out[idx] += amp;
+            std::cerr << "[combined] WARNING: raytracer+waveguide produced silent IR; "
+                         "injecting direct-path fallback (d="
+                      << d << ", idx=" << idx
+                      << "). This executes only when WAYVERB_ALLOW_SILENT_FALLBACK=1.\n";
+        }
+        return out;
     }
 
     const auto cutoff = *std::max_element(make_iterator(begin(input.waveguide)),
@@ -119,6 +181,13 @@ auto postprocess(const combined_results<Histogram>& input,
                              output_sample_rate / environment.speed_of_sound)));
 
     if (window_length == 0) {
+        if (!has_energy(filtered)) {
+            log_channel_stats("combined mix (no window)", filtered);
+            if (!allow_silent_fallback) {
+                std::cerr << "[combined] ERROR: combined IR energy is zero.\n";
+                throw std::runtime_error{"All channels are silent."};
+            }
+        }
         return filtered;
     }
 
@@ -131,6 +200,58 @@ auto postprocess(const combined_results<Histogram>& input,
             begin(filtered),
             begin(filtered),
             [](auto envelope, auto signal) { return envelope * signal; });
+
+    const auto sanitize = [](auto& buffer) {
+        size_t replaced = 0;
+        for (auto& sample : buffer) {
+            if (!std::isfinite(sample)) {
+                sample = 0.0f;
+                ++replaced;
+            }
+        }
+        return replaced;
+    };
+
+    if (const auto sanitized = sanitize(filtered); sanitized != 0) {
+        std::cerr << "[combined] sanitized " << sanitized
+                  << " non-finite samples in crossover output before fallback."
+                  << '\n';
+    }
+
+    if (!has_energy(filtered)) {
+        log_channel_stats("combined mix (windowed)", filtered);
+        if (!allow_silent_fallback) {
+            std::cerr << "[combined] ERROR: combined IR energy is zero "
+                         "after crossover/windowing.\n";
+            throw std::runtime_error{"All channels are silent."};
+        }
+        // Fallback: guarantee a minimal non-silent IR when explicitly allowed.
+        const auto d = distance(source_position, receiver_position);
+        const auto idx = static_cast<size_t>(std::floor(
+                d * output_sample_rate / environment.speed_of_sound));
+        const size_t n = std::max<size_t>(filtered.size(), idx + 1);
+        auto out = filtered;
+        out.resize(n, 0.0f);
+        const float amp = static_cast<float>(1.0 / std::max<double>(1.0e-6, d));
+        const auto sanitized_fallback = sanitize(out);
+        if (sanitized_fallback != 0) {
+            std::cerr
+                    << "[combined] sanitized " << sanitized_fallback
+                    << " non-finite samples in fallback buffer before impulse."
+                    << '\n';
+        }
+        const float before = out[idx];
+        out[idx] += amp;
+        const float after = out[idx];
+        const auto injected_max = core::max_mag(out);
+        std::cerr << "[combined] WARNING: postprocess produced silent IR; "
+                     "injecting direct-path fallback (d="
+                  << d << ", idx=" << idx << ", size=" << filtered.size()
+                  << ", amp=" << amp << ", before=" << before
+                  << ", after=" << after << ", max_after=" << injected_max
+                  << "). This executes only when WAYVERB_ALLOW_SILENT_FALLBACK=1.\n";
+        return out;
+    }
 
     return filtered;
 }

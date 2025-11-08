@@ -47,7 +47,7 @@ target_include_directories(core
 target_link_libraries(core
     ${OpenCL_LIBRARIES}
     assimp
-    zlibstatic 
+    ZLIB::ZLIB
     fftwf 
     audio_file 
     frequency_domain

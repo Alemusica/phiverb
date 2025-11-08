@@ -18,7 +18,9 @@ void single_band_waveguide::set_cutoff(double cutoff) {
 }
 
 void single_band_waveguide::set_usable_portion(double usable) {
-    data_.usable_portion = clamp(usable, util::make_range(0.0, 1.0));
+    // Constrain to a conservative, stable range used by the UI
+    // (values above ~0.6 can destabilise spacing calculations and GPU memory).
+    data_.usable_portion = clamp(usable, util::make_range(0.1, 0.6));
     notify();
 }
 
@@ -56,7 +58,7 @@ void multiple_band_waveguide::set_cutoff(double cutoff) {
 }
 
 void multiple_band_waveguide::set_usable_portion(double usable) {
-    data_.usable_portion = usable;
+    data_.usable_portion = clamp(usable, util::make_range(0.1, 0.6));
     notify();
 }
 

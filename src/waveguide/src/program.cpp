@@ -184,6 +184,26 @@ inline void record_pressure_nan(global int* debug_info,
     }
 }
 
+inline void record_outside_mesh_error(global int* debug_info,
+                                      uint global_index,
+                                      int3 locator,
+                                      int direction_code,
+                                      int slot_index) {
+    if (debug_info == 0) {
+        return;
+    }
+    volatile global int* flag = (volatile global int*)debug_info;
+    if (atomic_cmpxchg(flag, 0, 1) == 0) {
+        debug_info[0] = id_outside_mesh_error;
+        debug_info[1] = (int)global_index;
+        debug_info[2] = locator.x;
+        debug_info[3] = locator.y;
+        debug_info[4] = locator.z;
+        debug_info[5] = direction_code;
+        debug_info[6] = slot_index;
+    }
+}
+
 typedef struct {
     uint kind;
     uint step;
@@ -508,14 +528,18 @@ void ghost_point_pressure_update(
             const global float* current,                                     \
             int3 locator,                                                    \
             int3 dim,                                                        \
-            volatile global int* error_flag);                                \
+            volatile global int* error_flag,                                 \
+            global int* debug_info,                                          \
+            uint global_index);                                              \
     float CAT(get_summed_surrounding_, dimensions)(                          \
             const global condensed_node* nodes,                              \
             CAT(InnerNodeDirections, dimensions) pd,                         \
             const global float* current,                                     \
             int3 locator,                                                    \
             int3 dim,                                                        \
-            volatile global int* error_flag) {                               \
+            volatile global int* error_flag,                                 \
+            global int* debug_info,                                          \
+            uint global_index) {                                             \
         float ret = 0;                                                       \
         CAT(SurroundingPorts, dimensions)                                    \
         on_boundary = CAT(on_boundary_, dimensions)(pd);                     \
@@ -523,6 +547,11 @@ void ghost_point_pressure_update(
             uint index = neighbor_index(locator, dim, on_boundary.array[i]); \
             if (index == no_neighbor) {                                      \
                 atomic_or(error_flag, id_outside_mesh_error);                \
+                record_outside_mesh_error(debug_info,                        \
+                                          global_index,                      \
+                                          locator,                           \
+                                          on_boundary.array[i],              \
+                                          i);                                \
                 return 0;                                                    \
             }                                                                \
             int boundary_type = nodes[index].boundary_type;                  \
@@ -542,13 +571,17 @@ float get_summed_surrounding_3(const global condensed_node* nodes,
                                const global float* current,
                                int3 locator,
                                int3 dimensions,
-                               volatile global int* error_flag);
+                               volatile global int* error_flag,
+                               global int* debug_info,
+                               uint global_index);
 float get_summed_surrounding_3(const global condensed_node* nodes,
                                InnerNodeDirections3 i,
                                const global float* current,
                                int3 locator,
                                int3 dimensions,
-                               volatile global int* error_flag) {
+                               volatile global int* error_flag,
+                               global int* debug_info,
+                               uint global_index) {
     return 0;
 }
 
@@ -559,16 +592,25 @@ float get_inner_pressure(const global condensed_node* nodes,
                          int3 locator,
                          int3 dim,
                          PortDirection bt,
-                         volatile global int* error_flag);
+                         volatile global int* error_flag,
+                         global int* debug_info,
+                         uint global_index);
 float get_inner_pressure(const global condensed_node* nodes,
                          const global float* current,
                          int3 locator,
                          int3 dim,
                          PortDirection bt,
-                         volatile global int* error_flag) {
+                         volatile global int* error_flag,
+                         global int* debug_info,
+                         uint global_index) {
     uint neighbor = neighbor_index(locator, dim, bt);
     if (neighbor == no_neighbor) {
         atomic_or(error_flag, id_outside_mesh_error);
+        record_outside_mesh_error(debug_info,
+                                  global_index,
+                                  locator,
+                                  bt,
+                                  -1);
         return 0;
     }
     return current[neighbor];
@@ -581,14 +623,18 @@ float get_inner_pressure(const global condensed_node* nodes,
             int3 locator,                                                      \
             int3 dim,                                                          \
             CAT(InnerNodeDirections, dimensions) ind,                          \
-            volatile global int* error_flag);                                  \
+            volatile global int* error_flag,                                   \
+            global int* debug_info,                                            \
+            uint global_index);                                                \
     float CAT(get_current_surrounding_weighting_, dimensions)(                 \
             const global condensed_node* nodes,                                \
             const global float* current,                                       \
             int3 locator,                                                      \
             int3 dim,                                                          \
             CAT(InnerNodeDirections, dimensions) ind,                          \
-            volatile global int* error_flag) {                                 \
+            volatile global int* error_flag,                                   \
+            global int* debug_info,                                            \
+            uint global_index) {                                               \
         float sum = 0;                                                         \
         for (int i = 0; i != dimensions; ++i) {                                \
             sum += 2 * get_inner_pressure(nodes,                               \
@@ -596,11 +642,20 @@ float get_inner_pressure(const global condensed_node* nodes,
                                           locator,                             \
                                           dim,                                 \
                                           ind.array[i],                        \
-                                          error_flag);                         \
+                                          error_flag,                          \
+                                          debug_info,                          \
+                                          global_index);                       \
         }                                                                      \
         return courant_sq *                                                    \
                (sum + CAT(get_summed_surrounding_, dimensions)(                \
-                              nodes, ind, current, locator, dim, error_flag)); \
+                               nodes,                                         \
+                               ind,                                           \
+                               current,                                       \
+                               locator,                                       \
+                               dim,                                           \
+                               error_flag,                                    \
+                               debug_info,                                    \
+                               global_index));                                \
     }
 
 GET_CURRENT_SURROUNDING_WEIGHTING_TEMPLATE(1);
@@ -690,7 +745,14 @@ GET_COEFF_WEIGHTING_TEMPLATE(3);
         ind = CAT(get_inner_node_directions_, dimensions)(node.boundary_type); \
         float current_surrounding_weighting =                                  \
                 CAT(get_current_surrounding_weighting_, dimensions)(           \
-                        nodes, current, locator, dim, ind, error_flag);        \
+                        nodes,                                                \
+                        current,                                              \
+                        locator,                                              \
+                        dim,                                                  \
+                        ind,                                                  \
+                        error_flag,                                           \
+                        debug_info,                                           \
+                        global_index);                                        \
         global CAT(boundary_data_array_, dimensions)* bda =                    \
                 bdat + node.boundary_index;                                    \
         const float filter_weighting = CAT(get_filter_weighting_, dimensions)( \

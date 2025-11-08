@@ -61,7 +61,7 @@ boundary_index_data compute_boundary_index_data(
             core::compute_context{buffers.get_context(), device}};
 
     //  create a queue to make sure the cl stuff gets ordered properly
-    cl::CommandQueue queue{buffers.get_context(), device};
+    cl::CommandQueue queue{buffers.get_context(), device, CL_QUEUE_PROFILING_ENABLE};
 
     //  all our programs use the same size/queue, which can be set up here
     const auto enqueue = [&] {

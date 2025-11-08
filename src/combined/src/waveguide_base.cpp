@@ -1,6 +1,8 @@
 #include "combined/waveguide_base.h"
 
 #include "waveguide/canonical.h"
+#include <cstdlib>
+#include <string>
 
 namespace wayverb {
 namespace combined {
@@ -48,6 +50,15 @@ private:
 
 std::unique_ptr<waveguide_base> make_waveguide_ptr(
         const waveguide::single_band_parameters& t) {
+#if defined(WAYVERB_ENABLE_METAL) && defined(__APPLE__)
+    if (const char* m = std::getenv("WAYVERB_METAL")) {
+        if (*m && std::string(m) != std::string("0")) {
+            extern std::unique_ptr<waveguide_base> make_metal_waveguide_ptr(
+                    const waveguide::single_band_parameters&);
+            return make_metal_waveguide_ptr(t);
+        }
+    }
+#endif
     return std::make_unique<
             concrete_waveguide<waveguide::single_band_parameters>>(
             std::move(t));
@@ -55,6 +66,15 @@ std::unique_ptr<waveguide_base> make_waveguide_ptr(
 
 std::unique_ptr<waveguide_base> make_waveguide_ptr(
         const waveguide::multiple_band_constant_spacing_parameters& t) {
+#if defined(WAYVERB_ENABLE_METAL) && defined(__APPLE__)
+    if (const char* m = std::getenv("WAYVERB_METAL")) {
+        if (*m && std::string(m) != std::string("0")) {
+            extern std::unique_ptr<waveguide_base> make_metal_waveguide_ptr(
+                    const waveguide::multiple_band_constant_spacing_parameters&);
+            return make_metal_waveguide_ptr(t);
+        }
+    }
+#endif
     return std::make_unique<concrete_waveguide<
             waveguide::multiple_band_constant_spacing_parameters>>(
             std::move(t));
