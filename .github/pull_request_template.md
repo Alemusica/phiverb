@@ -19,6 +19,11 @@
   - ``
 - Runner macOS/Metal commentato con `runner=macos-metal ready`: [ ] Sì / [ ] N/A
 
+### Control Room Log
+- File (`logs/control_room/<agent>.md`): ``
+- Entry/entries citate (timestamp o link): 
+  - ``
+
 ### Salvage & Scope Control
 - Commit importati da branch legacy (hash + breve descrizione):
   - ``

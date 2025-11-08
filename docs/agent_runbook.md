@@ -1,6 +1,6 @@
 # Agent Runbook
 
-Operational contract for every agent (raytracer `PhiVerb-rt`, waveguide `PhiVerb-dwm`) working on Wayverb. Keep this file open while you work; update it whenever process requirements change.
+Operational contract for every agent (raytracer `PhiVerb-rt`, waveguide `PhiVerb-dwm`) working on Wayverb. Keep this file open while you work; update it whenever process requirements change. Legacy docs (es. materiale originale di Reuben) sono solo “mappe” storiche: consultale per capire come siamo arrivati qui, ma non per ripristinare workflow/test superati. Implementazioni e QA devono sempre seguire gli standard 2025 descritti in Runbook + Action Plan.
 
 ## 1. Repositories, Branches, Worktrees
 - Clone once, then create the mandated worktrees:
@@ -34,7 +34,13 @@ Rules:
    - 90 %: final checkpoint then stop unless the maintainer assigns more work.
 3. CI runner guard: when the macOS Metal runner is online, comment `runner=macos-metal ready` on the PR so the workflow can start. Missing tag = failed CI.
 
-## 4. PR Template Fields (enforced)
+## 4. Control-Room Dev Diary
+- Ogni agente deve annotare le decisioni significative nel diario sotto `logs/control_room/`.
+- Usa lo script `scripts/agents/log_note.sh "messaggio"` (oppure pipando testo): registra timestamp, branch e nota.
+- A inizio sessione logga il piano di lavoro; logga di nuovo dopo ogni milestone (nuovi test, regressioni, issue).
+- Cita sempre le entry rilevanti nel template PR (vedi sezione successiva).
+
+## 5. PR Template Fields (enforced)
 Every PR must fill out:
 1. **Branch**: `rt/...` or `dwm/...`.
 2. **Action Plan ID**: e.g. `AP-RT-001`.
@@ -47,13 +53,13 @@ Every PR must fill out:
 
 PRs missing any field are not reviewed.
 
-## 5. Salvaging Existing Work
+## 6. Salvaging Existing Work
 To keep previous efforts:
 1. Identify useful commits (BRDF fixes, guard-tag instrumentation, etc.) and cherry-pick or merge them into your `rt/...` or `dwm/...` branch.
 2. In `docs/action_plan.md`, mark the relevant checklist item as completed and note `(imported from <commit>)`.
 3. Update `docs/archeology.md` “Cluster principali” with a short entry describing what legacy work was retained and where it now lives.
 
-## 6. Evidence Requirements
+## 7. Evidence Requirements
 - **Raytracer agent** must attach:
   - Regression log showing `raytracer/tests/reverb_tests` passing.
   - Shoebox ISM↔RT comparison logs once implemented.
@@ -63,11 +69,11 @@ To keep previous efforts:
 
 Each log reference should include the relative file path plus timestamp.
 
-## 7. Escalation & External Research
+## 8. Escalation & External Research
 - If you hit a blocker needing external references, open an “ASK” entry (see `docs/archeology.md`) and ping `@creator` with the exact question plus why it is blocking the Action Plan item.
 - Do not proceed without that response when the information is blocker-critical.
 
-## 8. Document Maintenance
+## 9. Document Maintenance
 - Whenever you change process, update both this Runbook and `docs/AGENT_PROMPTS.md`.
 - Keep `docs/action_plan.md` and `docs/archeology.md` synchronized with reality—these are the canonical progress trackers.
 
