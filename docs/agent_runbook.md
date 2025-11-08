@@ -78,6 +78,7 @@ Each log reference should include the relative file path plus timestamp.
 ## 8. Escalation & External Research
 - If you hit a blocker needing external references, open an “ASK” entry (see `docs/archeology.md`) and ping `@creator` with the exact question plus why it is blocking the Action Plan item.
 - Do not proceed without that response when the information is blocker-critical.
+ - Quando ricevi la risposta, il Control Room archivia il testo completo in `docs/ask/ASK-<date>-<topic>.md`; rileggi il file e cita il path nella nota del diario.
 
 ## 9. Document Maintenance
 - Whenever you change process, update both this Runbook and `docs/AGENT_PROMPTS.md`.

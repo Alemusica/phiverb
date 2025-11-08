@@ -62,5 +62,5 @@ Usare questi artefatti come reference prima di toccare ciascun cluster e aggiorn
 
 ## Open Questions (ASK)
 <!-- BEGIN ASK-LIST -->
-1. **AP-RT-002 / stochastic kernel** — Specular-only shoebox (scatter_probability = 0) leaked energy into the diffuse rain pipeline. GPT‑5 Pro reply: when s == 0, no energy must enter `stochastic_path_info.physical`; gate deposits on `(1-α)*s`, mark `has_scattered`, and skip diffuse emission if a path never scattered. Optionally bypass the stochastic pass entirely when the scene has no scattering. (2025‑11‑08)
+1. **AP-RT-002 / stochastic kernel** — Specular-only shoebox leaked energy into the diffuse rain pipeline. Full answer stored at `docs/ask/ASK-20251108-rt-specular.md` (2025‑11‑08).
 <!-- END ASK-LIST -->
