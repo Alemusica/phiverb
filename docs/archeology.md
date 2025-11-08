@@ -35,6 +35,9 @@ dell'analisi di `todo.md`, dei commenti inline e dei log recenti.
 - `tools/run_regression_suite.sh` — esegue `bin/apple_silicon_regression` su tutte le scene forzando `WAYVERB_ALLOW_SILENT_FALLBACK=0`.
 - `bin/wayverb_cli` — CLI sintetica che genera IR (per la QA EDC/Txx finché il solver fisico non è integrato).
 - `scripts/monitor_app_log.sh` — monitora i log emettendo timestamp e le nuove metriche `[combined]`.
+- **Legacy doc usage** — le note storiche (Reuben/archivio HTML) vanno lette solo come “mappe” dell’edificio: servono a capire cosa è stato fatto, ma non vanno riattivate pipeline o test superati. Ogni implementazione deve rifarsi alle sezioni Runbook/Action Plan del 2025; se consulti materiale legacy, annotalo solo come riferimento contestuale.
+- `docs/agent_runbook.md` — runbook operativo che riunisce branch policy, log obbligatori, checkpoint e requisiti di salvaging.
+- `docs/audio_spatial_framework_plan.md` — piano per l’aggiornamento del decoder binaurale (Spatial Audio Framework) basato sulle note legacy di Reuben.
 
 Usare questi artefatti come reference prima di toccare ciascun cluster e aggiornare il documento quando emergono nuove evidenze.
 
@@ -59,5 +62,5 @@ Usare questi artefatti come reference prima di toccare ciascun cluster e aggiorn
 
 ## Open Questions (ASK)
 <!-- BEGIN ASK-LIST -->
-_(le richieste Ask‑Then‑Act attive/risolte compaiono qui)_
+1. **AP-RT-002 / stochastic kernel** — Specular-only shoebox leaked energy into the diffuse rain pipeline. Full answer stored at `docs/ask/ASK-20251108-rt-specular.md` (2025‑11‑08).
 <!-- END ASK-LIST -->

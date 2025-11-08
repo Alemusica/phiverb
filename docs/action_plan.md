@@ -1,7 +1,7 @@
 # Wayverb Archeology Action Plan
 
 Questo file vive nel repo e rimane il riferimento unico per tenere traccia
-dell'avanzamento. Ogni blocco ha:
+dell'avanzamento. Consultalo insieme alla [Runbook](agent_runbook.md): quando completi una voce devi aggiornare entrambi dove pertinente. Ogni blocco ha:
 
 - **Descrizione** e **path** dei file coinvolti.
 - **Checklist** con criteri di accettazione.
@@ -117,6 +117,24 @@ dell'avanzamento. Ogni blocco ha:
 
 **Verifiche**
 - CI/fuzzing: integrare libFuzzer/AFL++ e RapidCheck come da piano; loggare i risultati in PR.
+
+---
+
+## 6. Spatial Audio Framework / Binaural Decoding
+
+**File principali**
+- `docs/audio_spatial_framework_plan.md`
+- `bin/render_binaural`, `Spatial_Audio_Framework/*`
+- `src/waveguide/postprocess`, `src/raytracer/postprocess`
+
+**Checklist**
+- [ ] Aggiornare il piano (docs/audio_spatial_framework_plan.md) con API, dipendenze e risultati della ricerca (eventuale ASK/GPT-Pro documentato).
+- [ ] Integrare il decoder aggiornato mantenendo compatibilità con waveguide/raytracer (formati IR, pipeline FOA/HOA).
+- [ ] Aggiornare tooling/QA (`scripts/qa/*`) con test ILD/ITD/Txx e loggare ogni run (`build/logs/...`).
+
+**Verifiche**
+- Log binaurali allegati alla PR (validation/regressione con percorsi esatti).
+- `docs/archeology.md` e `docs/audio_spatial_framework_plan.md` aggiornati con stato, link ai log e riferimenti alle entry del dev diary.
 
 ---
 
