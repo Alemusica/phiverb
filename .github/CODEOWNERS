@@ -1,0 +1,4 @@
+/src/raytracer/   @your-org/codex-rt
+/src/waveguide/   @your-org/codex-dwm
+/include/common/  @your-org/codex-rt @your-org/codex-dwm
+/scripts/         @your-org/codex-orchestrator

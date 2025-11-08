@@ -1,0 +1,13 @@
+{
+  "name": "shoebox_small",
+  "dims_m": [6.0, 4.0, 3.0],
+  "volume_m3": 72.0,
+  "surface_m2": 84.0,
+  "alpha_bar_1k": 0.20,
+  "air_m_nepers_per_m": 0.0,
+  "materials": {
+    "walls": "PTB:<SOSTITUISCI>",
+    "floor": "PTB:<SOSTITUISCI>",
+    "ceiling": "PTB:<SOSTITUISCI>"
+  }
+}
