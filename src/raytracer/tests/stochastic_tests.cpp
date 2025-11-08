@@ -28,9 +28,27 @@ TEST(stochastic, bad_reflections_box) {
     const scene_buffers buffers{cc.context, voxelised};
 
     const util::aligned::vector<reflection> bad_reflections{
-            reflection{cl_float3{{2.66277409, 0.0182733424, 6}}, 10, 1, 1},
-            reflection{cl_float3{{3.34029818, 1.76905692, 6}}, 10, 1, 1},
-            reflection{cl_float3{{4, 2.46449089, 1.54567611}}, 7, 1, 1},
+            reflection{cl_float3{{2.66277409, 0.0182733424, 6}},
+                       10,
+                       0.0f,
+                       1,
+                       1,
+                       0,
+                       0},
+            reflection{cl_float3{{3.34029818, 1.76905692, 6}},
+                       10,
+                       0.0f,
+                       1,
+                       1,
+                       0,
+                       0},
+            reflection{cl_float3{{4, 2.46449089, 1.54567611}},
+                       7,
+                       0.0f,
+                       1,
+                       1,
+                       0,
+                       0},
     };
 
     const auto receiver_radius = 1.0f;
@@ -61,15 +79,34 @@ TEST(stochastic, bad_reflections_vault) {
     const scene_buffers buffers{cc.context, voxelised};
 
     const util::aligned::vector<reflection> bad_reflections{
-            reflection{cl_float3{{2.29054403, 1.00505638, -1.5}}, 2906, 1, 1},
-            reflection{
-                    cl_float3{{5.28400469, 3.0999999, -3.8193748}}, 2671, 1, 1},
-            reflection{
-                    cl_float3{{5.29999971, 2.40043592, -2.991467}}, 2808, 1, 1},
+            reflection{cl_float3{{2.29054403, 1.00505638, -1.5}},
+                       2906,
+                       0.0f,
+                       1,
+                       1,
+                       0,
+                       0},
+            reflection{cl_float3{{5.28400469, 3.0999999, -3.8193748}},
+                       2671,
+                       0.0f,
+                       1,
+                       1,
+                       0,
+                       0},
+            reflection{cl_float3{{5.29999971, 2.40043592, -2.991467}},
+                       2808,
+                       0.0f,
+                       1,
+                       1,
+                       0,
+                       0},
             reflection{cl_float3{{-1.29793882, 2.44466829, 5.30000019}},
                        1705,
+                       0.0f,
                        1,
-                       1},
+                       1,
+                       0,
+                       0},
     };
 
     const auto receiver_radius = 1.0f;

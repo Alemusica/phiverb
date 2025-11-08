@@ -1,0 +1,106 @@
+name: CI
+on:
+  pull_request:
+    branches: [ main ]
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      rt: ${{ steps.set.outputs.rt }}
+      dwm: ${{ steps.set.outputs.dwm }}
+      mtl: ${{ steps.set.outputs.mtl }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: set
+        run: |
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          RT=false; DWM=false; MTL=false
+          echo "$CHANGED" | grep -E '^src/raytracer/' && RT=true || true
+          echo "$CHANGED" | grep -E '^src/waveguide/' && DWM=true || true
+          echo "$CHANGED" | grep -E '^src/metal/' && MTL=true || true
+          echo "rt=$RT"  >> "$GITHUB_OUTPUT"
+          echo "dwm=$DWM" >> "$GITHUB_OUTPUT"
+          echo "mtl=$MTL" >> "$GITHUB_OUTPUT"
+
+  rt-tests:
+    needs: detect
+    if: needs.detect.outputs.rt == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - name: Tooling
+        run: |
+          sudo apt-get update && sudo apt-get install -y ninja-build
+          python3 -m pip install --upgrade pip numpy scipy soundfile
+      - name: Configure+Build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j
+      - name: RT Parity (ISM ↔ PT, BRDF/MIS)
+        run: |
+          build/bin/wayverb_cli --scene tests/scenes/shoebox_small.json --backend opencl --out rt_ocl.wav --log rt_ocl.json
+          python3 scripts/qa/run_validation_suite.py --cli build/bin/wayverb_cli --scenes tests/scenes
+
+  dwm-tests:
+    needs: detect
+    if: needs.detect.outputs.dwm == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - name: Tooling
+        run: |
+          sudo apt-get update && sudo apt-get install -y ninja-build
+          python3 -m pip install --upgrade pip numpy scipy soundfile
+      - name: Configure+Build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j
+      - name: DWM Passivity/CFL
+        run: |
+          ctest --test-dir build --output-on-failure
+          python3 scripts/qa/run_validation_suite.py --cli build/bin/wayverb_cli --scenes tests/scenes
+
+  metal-smoke:
+    needs: detect
+    if: needs.detect.outputs.mtl == 'true'
+    runs-on: [self-hosted, macos, metal]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - name: Tooling
+        run: |
+          brew install cmake ninja python ccache || true
+          python3 -m pip install --upgrade pip numpy scipy soundfile
+      - name: Configure+Build (Metal strict)
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                -DWAYVERB_ENABLE_METAL=ON -DWAYVERB_STRICT_METAL=ON \
+                -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build build -j
+      - name: Run Metal smoke (NO fallback)
+        run: |
+          WAYVERB_BACKEND_METAL=1 WAYVERB_METAL=1 WAYVERB_STRICT_METAL=1 \
+            build/bin/wayverb_cli --scene tests/scenes/shoebox_small.json \
+                                   --out out_metal.wav --log out_metal.json
+          python3 - <<'PY'
+          import json, sys
+          with open("out_metal.json") as fh:
+              data = json.load(fh)
+          if data.get("backend") != "metal":
+              print("[FAIL] backend != metal in strict mode:", data)
+              sys.exit(2)
+          PY

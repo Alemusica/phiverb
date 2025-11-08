@@ -3,6 +3,7 @@
 #include "raytracer/simulation_parameters.h"
 
 #include <cmath>
+#include <cstdint>
 
 namespace wayverb {
 namespace raytracer {
@@ -25,12 +26,13 @@ constexpr auto required_rays(double hits_per_interval,
 }
 
 constexpr auto make_simulation_parameters(
-            double hits_per_interval,
-            double receiver_radius,
-            double speed_of_sound,
-            double histogram_sample_rate,
-            double room_volume,
-            size_t maximum_image_source_order) {
+        double hits_per_interval,
+        double receiver_radius,
+        double speed_of_sound,
+        double histogram_sample_rate,
+        double room_volume,
+        size_t maximum_image_source_order,
+        std::uint64_t rng_seed = 0x9E3779B97F4A7C15ull) {
     return simulation_parameters{
             static_cast<size_t>(required_rays(hits_per_interval,
                                               receiver_radius,
@@ -39,7 +41,8 @@ constexpr auto make_simulation_parameters(
                                               room_volume)),
             maximum_image_source_order,
             receiver_radius,
-            histogram_sample_rate};
+            histogram_sample_rate,
+            rng_seed};
 }
 
 }  // namespace raytracer

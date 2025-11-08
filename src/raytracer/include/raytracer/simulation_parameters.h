@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdlib>
+#include <cstdint>
 #include <tuple>
 
 namespace wayverb {
@@ -31,10 +32,18 @@ struct simulation_parameters final {
     /// The frequency of the energy histogram.
     /// Smaller intervals need more rays, longer intervals are inaccurate.
     double histogram_sample_rate = 1000;
+
+    /// Seed used for deterministic random direction / scattering generation.
+    /// Use different seeds to decorrelate runs; keep fixed for reproducibility.
+    std::uint64_t rng_seed = 0x9E3779B97F4A7C15ull;
 };
 
 constexpr auto to_tuple(const simulation_parameters& x) {
-    return std::tie(x.rays, x.maximum_image_source_order);
+    return std::tie(x.rays,
+                    x.maximum_image_source_order,
+                    x.receiver_radius,
+                    x.histogram_sample_rate,
+                    x.rng_seed);
 }
 
 constexpr bool operator==(const simulation_parameters& a,

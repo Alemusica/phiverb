@@ -7,6 +7,10 @@
 #include "UtilityComponents/LoadWindow.h"
 
 #include "core/serialize/surface.h"
+#if __has_include("build_id_override.h")
+#include "build_id_override.h"
+#endif
+#include "core/build_id.h"
 
 #if JUCE_MAC
 #include "metal/MetalSample.h"
@@ -27,6 +31,13 @@ auto get_options() {
     options.folderName = "wayverb";
 #endif
     return options;
+}
+
+juce::String build_window_title() {
+    const auto build_label =
+            wayverb::core::build_identifier(ProjectInfo::versionString);
+    return juce::String(ProjectInfo::projectName) + " • " +
+           juce::String(build_label);
 }
 
 class AutoDeleteDocumentWindow : public DocumentWindow {
@@ -57,6 +68,8 @@ public:
 
         MenuBarModel::setMacMainMenu(&main_menu_bar_model_, nullptr);
         main_menu_bar_model_.menuItemsChanged();
+
+        juce::Logger::writeToLog("wayverb build: " + build_window_title());
 
 #if JUCE_MAC
         if (!wayverb::metal::run_sample_kernel()) {
@@ -232,7 +245,7 @@ private:
         try_and_explain(
                 [&] {
                     auto new_window = std::make_unique<main_window>(
-                            *this, owner_.getApplicationName(), fname);
+                            *this, build_window_title(), fname);
 
                     //  When window asks to close, find it in the set and delete
                     //  it.
@@ -272,7 +285,7 @@ private:
         if (ready_to_quit()) {
             load_window_ = [this] {
                 auto ret = std::make_unique<LoadWindow>(
-                        owner_.getApplicationName(),
+                        build_window_title(),
                         DocumentWindow::closeButton,
                         valid_file_formats,
                         get_command_manager());

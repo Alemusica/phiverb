@@ -1,5 +1,6 @@
 #include "raytracer/image_source/postprocess_branches.h"
 #include "raytracer/image_source/fast_pressure_calculator.h"
+#include "raytracer/image_source/path_enumerator.h"
 
 namespace wayverb {
 namespace raytracer {
@@ -19,12 +20,13 @@ util::aligned::vector<impulse<core::simulation_bands>> postprocess_branches(
                     end(voxelised.get_scene_data().get_surfaces()),
                     receiver,
                     flip_phase));
-    find_valid_paths(
-            tree,
-            source,
-            receiver,
-            voxelised,
-            [&](auto img, auto begin, auto end) { callback(img, begin, end); });
+    enumerate_valid_paths(tree,
+                          source,
+                          receiver,
+                          voxelised,
+                          [&](const auto& event) {
+                              callback(event.image_source, event.begin, event.end);
+                          });
     return callback.get_output();
 }
 

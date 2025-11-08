@@ -8,30 +8,22 @@
 
 namespace wayverb {
 namespace raytracer {
-namespace {
-
-util::aligned::vector<cl_float> get_direction_rng(size_t num) {
+util::aligned::vector<cl_float> reflector::generate_direction_rng(
+        size_t num) {
     util::aligned::vector<cl_float> ret;
     ret.reserve(2 * num);
-    std::default_random_engine engine{std::random_device()()};
-
     for (auto i = 0ul; i != num; ++i) {
-        const core::direction_rng rng(engine);
+        const core::direction_rng rng(rng_engine_);
         ret.emplace_back(rng.get_z());
         ret.emplace_back(rng.get_theta());
     }
-
     return ret;
 }
-
-}  // namespace
-
-////////////////////////////////////////////////////////////////////////////////
 
 util::aligned::vector<reflection> reflector::run_step(
         const core::scene_buffers& buffers) {
     //  get some new rng and copy it to device memory
-    const auto rng{get_direction_rng(rays_)};
+    const auto rng{generate_direction_rng(rays_)};
     cl::copy(queue_, std::begin(rng), std::end(rng), rng_buffer_);
 
     //  get the kernel and run it

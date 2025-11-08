@@ -38,3 +38,25 @@ apps/impulse/Builds/MacOSX/Build
 
 compile_commands.json
 build_log.txt
+# Build / artefatti
+build*/
+build-*/
+_out*/
+_out/
+_work/
+*.o
+*.obj
+*.a
+*.dylib
+*.so
+*.dll
+*.metallib
+*.air
+*.log
+.DS_Store
+# Xcode / IDE
+*.xcworkspace/
+*.xcodeproj/*
+!.xcodeproj/project.pbxproj
+.idea/
+.vscode/

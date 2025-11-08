@@ -15,6 +15,12 @@ target_include_directories(combined
     ${DEPENDENCY_INSTALL_PREFIX}/include
 )
 
-target_link_libraries(combined waveguide raytracer)
+target_link_libraries(combined
+    PUBLIC
+        waveguide
+        raytracer)
+if(WAYVERB_ENABLE_METAL AND APPLE)
+  target_link_libraries(combined PRIVATE wayverb_metal)
+endif()
 
 add_subdirectory(tests)

@@ -12,6 +12,9 @@
 #include "core/scene_data.h"
 
 #include "glm/glm.hpp"
+#include <iostream>
+#include <sstream>
+#include "utilities/crash_reporter.h"
 
 namespace wayverb {
 namespace combined {
@@ -115,6 +118,9 @@ public:
         const auto rays_to_visualise = std::min(32ul, raytracer_.rays);
 
         engine_state_changed_(state::starting_raytracer, 1.0);
+        std::cerr << "[engine] starting raytracer: rays=" << raytracer_.rays
+                  << " img_src_order=" << raytracer_.maximum_image_source_order
+                  << "\n";
 
         auto raytracer_output = raytracer::canonical(
                 compute_context_,
@@ -136,6 +142,7 @@ public:
         }
 
         engine_state_changed_(state::finishing_raytracer, 1.0);
+        std::cerr << "[engine] finishing raytracer\n";
 
         raytracer_reflections_generated_(std::move(raytracer_output->visual),
                                          source_);
@@ -146,6 +153,17 @@ public:
 
         //  WAVEGUIDE  /////////////////////////////////////////////////////////
         engine_state_changed_(state::starting_waveguide, 1.0);
+        const auto fs = waveguide_->compute_sampling_frequency();
+        const auto spacing = voxels_and_mesh_.mesh.get_descriptor().spacing;
+        std::cerr << "[engine] starting waveguide: fs=" << fs
+                  << " Hz spacing=" << spacing << " m max_time="
+                  << max_stochastic_time << " s\n";
+
+        // Visualisation decimation: reading back the full node-pressure buffer
+        // every step severely throttles the GPU. Allow decimation via env.
+        const char* viz_dec_env = std::getenv("WAYVERB_VIZ_DECIMATE");
+        const size_t viz_decimate = viz_dec_env ? std::max<size_t>(1, std::strtoull(viz_dec_env, nullptr, 10)) : 1;
+        const bool viz_disabled = std::getenv("WAYVERB_DISABLE_VIZ") != nullptr;
 
         auto waveguide_output = waveguide_->run(
                 compute_context_,
@@ -156,20 +174,29 @@ public:
                 max_stochastic_time,
                 keep_going,
                 [&](auto& queue, const auto& buffer, auto step, auto steps) {
-                    //  If there are node pressure listeners.
-                    if (!waveguide_node_pressures_changed_.empty()) {
-                        auto pressures =
-                                core::read_from_buffer<float>(queue, buffer);
-                        const auto time =
-                                step / waveguide_->compute_sampling_frequency();
-                        const auto distance =
-                                time * environment_.speed_of_sound;
-                        waveguide_node_pressures_changed_(std::move(pressures),
-                                                          distance);
+                    //  If there are node pressure listeners, optionally decimate
+                    //  the GPU->CPU readback to reduce stalls.
+                    if (!viz_disabled && !waveguide_node_pressures_changed_.empty()) {
+                        if (viz_decimate == 1 || (step % viz_decimate) == 0 || step + 1 == steps) {
+                            auto pressures = core::read_from_buffer<float>(queue, buffer);
+                            const auto time = step / waveguide_->compute_sampling_frequency();
+                            const auto distance = time * environment_.speed_of_sound;
+                            waveguide_node_pressures_changed_(std::move(pressures), distance);
+                        }
                     }
 
-                    engine_state_changed_(state::running_waveguide,
-                                          step / (steps - 1.0));
+                    const double prog = step / (steps - 1.0);
+                    engine_state_changed_(state::running_waveguide, prog);
+                    if (step % 500 == 0 || step + 1 == steps) {
+                        std::cerr << "[engine] waveguide step=" << (step + 1)
+                                  << "/" << steps << " ("
+                                  << static_cast<int>(100.0 * (step + 1) /
+                                                     std::max<std::size_t>(1, steps))
+                                  << "%)\n";
+                        std::ostringstream os; os << "wg step=" << (step + 1)
+                                                   << "/" << steps;
+                        util::crash::reporter::set_status(os.str());
+                    }
                 });
 
         if (!(keep_going && waveguide_output)) {
@@ -177,6 +204,7 @@ public:
         }
 
         engine_state_changed_(state::finishing_waveguide, 1.0);
+        std::cerr << "[engine] finishing waveguide\n";
 
         return make_intermediate_impl_ptr(
                 make_combined_results(std::move(raytracer_output->aural),
