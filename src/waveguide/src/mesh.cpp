@@ -65,7 +65,7 @@ mesh compute_mesh(
     const bool force_identity_coeffs =
             std::getenv("WAYVERB_FORCE_IDENTITY_COEFFS") != nullptr;
     const auto program = setup_program{cc};
-    auto queue = cl::CommandQueue{cc.context, cc.device};
+    auto queue = cl::CommandQueue{cc.context, cc.device, CL_QUEUE_PROFILING_ENABLE};
 
     const auto buffers = make_scene_buffers(cc.context, voxelised);
 
@@ -190,9 +190,19 @@ voxels_and_mesh compute_voxels_and_mesh(const core::compute_context& cc,
                                         double speed_of_sound) {
     const auto mesh_spacing =
             config::grid_spacing(speed_of_sound, 1 / sample_rate);
+    // Allow shrinking the voxel padding around the adjusted boundary via env.
+    // Default is 5 (historical). Lower values reduce domain size and runtime
+    // without materially changing results for interior receivers.
+    int pad = 5;
+    if (const char* p = std::getenv("WAYVERB_VOXEL_PAD")) {
+        try {
+            pad = std::max(0, std::min(16, static_cast<int>(std::strtol(p, nullptr, 10))));
+        } catch (...) {
+        }
+    }
     auto voxelised = make_voxelised_scene_data(
             scene,
-            5,
+            pad,
             waveguide::compute_adjusted_boundary(
                     core::geo::compute_aabb(scene.get_vertices()),
                     anchor,

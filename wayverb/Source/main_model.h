@@ -134,12 +134,6 @@ public:
             decltype(wayverb::combined::model::presets::capsules);
     capsule_presets_t capsule_presets;
 
-    // Geometry options (UI‑controlled; not serialized for now)
-    struct geometry_options {
-        bool sanitize = true;
-        double weld_epsilon = 1.0e-6;
-    } geometry;
-
 private:
     std::string currently_open_file_;
 

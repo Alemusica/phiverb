@@ -10,17 +10,22 @@ namespace raytracer {
 struct alignas(1 << 4) reflection final {
     cl_float3 position;   //  position of the secondary source
     cl_uint triangle;     //  triangle which contains source
-    cl_char keep_going;   //  whether or not this is the teriminator for this
+    cl_float scatter_probability;
+    cl_char keep_going;   //  whether or not this is the terminator for this
                           //  path (like a \0 in a char*)
     cl_char receiver_visible;  //  whether or not the receiver is visible from
                                //  this point
+    cl_char sampled_diffuse;   //  whether the outgoing direction was diffuse
+    cl_char padding;
 };
 
 constexpr auto to_tuple(const reflection& x) {
     return std::tie(x.position,
                     x.triangle,
+                    x.scatter_probability,
                     x.keep_going,
-                    x.receiver_visible);
+                    x.receiver_visible,
+                    x.sampled_diffuse);
 }
 
 constexpr bool operator==(const reflection& a, const reflection& b) {

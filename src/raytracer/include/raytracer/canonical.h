@@ -5,6 +5,8 @@
 
 #include "core/spatial_division/voxelised_scene_data.h"
 
+#include <random>
+
 namespace wayverb {
 namespace raytracer {
 
@@ -54,7 +56,7 @@ auto canonical(
         size_t visual_items,
         const std::atomic_bool& keep_going,
         Callback&& callback) {
-    std::default_random_engine engine{std::random_device{}()};
+    std::mt19937_64 engine{sim_params.rng_seed};
 
     auto tup = run(
             make_random_direction_generator_iterator(0, engine),
@@ -66,7 +68,8 @@ auto canonical(
             environment,
             keep_going,
             std::forward<Callback>(callback),
-            make_canonical_callbacks(sim_params, visual_items));
+            make_canonical_callbacks(sim_params, visual_items),
+            sim_params.rng_seed);
     return tup ? std::make_optional(make_canonical_results(
                          make_simulation_results(std::move(std::get<0>(*tup)),
                                                  std::move(std::get<1>(*tup))),

@@ -103,8 +103,11 @@ struct core::cl_representation<raytracer::reflection> final {
 typedef struct {
     float3 position;
     uint triangle;
+    float scatter_probability;
     char keep_going;
     char receiver_visible;
+    char sampled_diffuse;
+    char padding;
 } reflection;
 )";
 };

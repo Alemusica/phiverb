@@ -16,6 +16,12 @@ Soft source without solution growth.
 
 Only ambisonic output?
 
+Investigate multi-band waveguide NaNs (boundary coeffs, trace failing nodes).
+
+Fix “Tried to read non-existant node” on sanitized fractal mesh (voxel bounds / neighbor lookup).
+
+Finish Metal waveguide execution path (current scaffold still falls back to OpenCL; rendering remains too slow).
+
 ### app stuff
 
 Finish adding the help panel info.

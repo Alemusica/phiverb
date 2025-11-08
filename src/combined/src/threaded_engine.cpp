@@ -12,6 +12,12 @@
 
 #include "audio_file/audio_file.h"
 
+#include "glm/glm.hpp"
+
+#include <cmath>
+#include <iostream>
+#include <limits>
+
 namespace wayverb {
 namespace combined {
 namespace {
@@ -26,7 +32,126 @@ struct max_mag_functor final {
 struct channel_info final {
     util::aligned::vector<float> data;
     std::string file_name;
+    glm::vec3 source_position;
+    glm::vec3 receiver_position;
+    double sample_rate{};
 };
+
+constexpr double kDefaultSampleRate = 44100.0;
+constexpr double kDefaultSpeedOfSound = 340.0;
+constexpr double kMinDistance = 1.0e-3;
+
+bool is_finite_vec3(const glm::vec3& v) {
+    return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+}
+
+glm::dvec3 sanitize_position(const glm::vec3& v,
+                             const char* label,
+                             const std::string& file_name) {
+    if (is_finite_vec3(v)) {
+        return glm::dvec3{v};
+    }
+    std::cerr << "[combined] direct-path fallback: " << label
+              << " position invalid for '" << file_name
+              << "', forcing origin.\n";
+    return glm::dvec3{0.0};
+}
+
+double sanitize_positive(double value,
+                         double fallback,
+                         const char* label,
+                         const std::string& file_name) {
+    if (std::isfinite(value) && value > 0.0) {
+        return value;
+    }
+    std::cerr << "[combined] direct-path fallback: " << label << '=' << value
+              << " invalid for '" << file_name << "', defaulting to "
+              << fallback << '\n';
+    return fallback;
+}
+
+size_t clamp_arrival_index(double arrival_samples,
+                           const std::string& file_name) {
+    if (!std::isfinite(arrival_samples) || arrival_samples < 0.0) {
+        std::cerr << "[combined] direct-path fallback: invalid arrival sample "
+                  << "count (" << arrival_samples << ") for '" << file_name
+                  << "', using sample 0.\n";
+        return 0;
+    }
+
+    const double max_ll =
+            static_cast<double>(std::numeric_limits<long long>::max());
+    if (arrival_samples > max_ll) {
+        std::cerr << "[combined] direct-path fallback: arrival sample "
+                  << arrival_samples << " for '" << file_name
+                  << "' exceeds numeric limit, clipping to " << max_ll << '\n';
+        arrival_samples = max_ll;
+    }
+
+    return static_cast<size_t>(std::llround(arrival_samples));
+}
+
+bool inject_direct_path_impulse(channel_info& channel,
+                                const core::environment& environment) {
+    const double sample_rate = sanitize_positive(channel.sample_rate,
+                                                 kDefaultSampleRate,
+                                                 "sample_rate",
+                                                 channel.file_name);
+    channel.sample_rate = sample_rate;
+
+    const auto source = sanitize_position(
+            channel.source_position, "source", channel.file_name);
+    const auto receiver = sanitize_position(
+            channel.receiver_position, "receiver", channel.file_name);
+
+    const double speed_of_sound =
+            sanitize_positive(environment.speed_of_sound,
+                              kDefaultSpeedOfSound,
+                              "speed_of_sound",
+                              channel.file_name);
+
+    double distance = glm::length(receiver - source);
+    if (!std::isfinite(distance)) {
+        std::cerr << "[combined] direct-path fallback: invalid source->receiver "
+                  << "distance for '" << channel.file_name
+                  << "', forcing 1 m.\n";
+        distance = 1.0;
+    }
+    distance = std::max(distance, 0.0);
+
+    double arrival_seconds = distance / speed_of_sound;
+    if (!std::isfinite(arrival_seconds) || arrival_seconds < 0.0) {
+        std::cerr << "[combined] direct-path fallback: invalid arrival time "
+                  << arrival_seconds << " for '" << channel.file_name
+                  << "', using 0 s.\n";
+        arrival_seconds = 0.0;
+    }
+
+    const auto arrival_index =
+            clamp_arrival_index(arrival_seconds * sample_rate, channel.file_name);
+
+    if (channel.data.size() <= arrival_index) {
+        channel.data.resize(arrival_index + 1, 0.0f);
+    }
+    auto& target_sample = channel.data[arrival_index];
+    if (!std::isfinite(target_sample)) {
+        std::cerr << "[combined] direct-path fallback sanitized non-finite "
+                     "sample before injection (file='"
+                  << channel.file_name << "', idx=" << arrival_index << ")\n";
+        target_sample = 0.0f;
+    }
+    const float before = target_sample;
+    const double denom = std::max(distance, kMinDistance);
+    const float amplitude = static_cast<float>(1.0 / denom);
+    target_sample += amplitude;
+    const float after = target_sample;
+    std::cerr << "[combined] injected direct-path fallback into '"
+              << channel.file_name << "' (distance=" << distance
+              << " m, sample=" << arrival_index << ", amp=" << amplitude
+              << ", before=" << before << ", after=" << after
+              << ", samples=" << channel.data.size() << ")\n";
+    return true;
+}
 
 }  // namespace
 
@@ -151,6 +276,9 @@ void complete_engine::do_run(core::compute_context compute_context,
 
         auto run = 0;
 
+        const double output_sample_rate =
+                get_sample_rate(output.get_sample_rate());
+
         //  For each source-receiver pair.
         for (auto source = std::begin(*persistent.sources().item()),
                   e_source = std::end(*persistent.sources().item());
@@ -203,11 +331,10 @@ void complete_engine::do_run(core::compute_context compute_context,
                         });
 
                 //  Run the simulation, cache the result.
-                auto channel =
-                        eng.run(begin(polymorphic_capsules),
-                                end(polymorphic_capsules),
-                                get_sample_rate(output.get_sample_rate()),
-                                keep_going_);
+                auto channel = eng.run(begin(polymorphic_capsules),
+                                       end(polymorphic_capsules),
+                                       output_sample_rate,
+                                       keep_going_);
 
                 //  If user cancelled while processing the channel, channel
                 //  will be null, but we want to exit before throwing an
@@ -233,7 +360,10 @@ void complete_engine::do_run(core::compute_context compute_context,
                                     *receiver->item(),
                                     *(*receiver->item()->capsules().item())[i]
                                              .item(),
-                                    output)});
+                                    output),
+                            source->item()->get_position(),
+                            receiver->item()->get_position(),
+                            output_sample_rate});
                 }
             }
         }
@@ -250,28 +380,49 @@ void complete_engine::do_run(core::compute_context compute_context,
                                                            max_mag_functor{});
             };
 
-            const auto max_mag =
-                    *std::max_element(make_iterator(begin(all_channels)),
-                                      make_iterator(end(all_channels)));
+            const auto recompute_max_mag = [&]() {
+                return *std::max_element(make_iterator(begin(all_channels)),
+                                         make_iterator(end(all_channels)));
+            };
+
+            auto max_mag = recompute_max_mag();
 
             if (max_mag == 0.0f) {
-                // Detailed diagnostics for silent outputs
-                const float eps = 1.0e-12f;
-                std::cerr << "[combined] All channels silent. Diagnostics:" << '\n';
-                for (size_t ci = 0; ci < all_channels.size(); ++ci) {
-                    const auto& ch = all_channels[ci];
-                    float local_max = 0.0f;
-                    size_t nonzero = 0;
-                    for (const auto& s : ch.data) {
-                        const float a = std::abs(s);
-                        if (a > local_max) local_max = a;
-                        if (a > eps) ++nonzero;
-                    }
-                    std::cerr << "  channel[" << ci << "] file='" << ch.file_name
-                              << "' max=" << local_max
-                              << " nonzero_samples=" << nonzero << '\n';
+                bool injected = false;
+                for (auto& channel : all_channels) {
+                    injected |= inject_direct_path_impulse(channel, environment);
                 }
-                throw std::runtime_error{"All channels are silent."};
+                if (injected) {
+                    for (size_t ci = 0; ci < all_channels.size(); ++ci) {
+                        const auto& channel = all_channels[ci];
+                        const auto post_max = core::max_mag(channel.data);
+                        std::cerr << "[combined] channel[" << ci
+                                  << "] max after direct-path "
+                                     "injection="
+                                  << post_max << " file='" << channel.file_name
+                                  << "'\n";
+                    }
+                    max_mag = recompute_max_mag();
+                }
+                if (max_mag == 0.0f) {
+                    // Detailed diagnostics for silent outputs
+                    const float eps = 1.0e-12f;
+                    std::cerr << "[combined] All channels silent. Diagnostics:" << '\n';
+                    for (size_t ci = 0; ci < all_channels.size(); ++ci) {
+                        const auto& ch = all_channels[ci];
+                        float local_max = 0.0f;
+                        size_t nonzero = 0;
+                        for (const auto& s : ch.data) {
+                            const float a = std::abs(s);
+                            if (a > local_max) local_max = a;
+                            if (a > eps) ++nonzero;
+                        }
+                        std::cerr << "  channel[" << ci << "] file='" << ch.file_name
+                                  << "' max=" << local_max
+                                  << " nonzero_samples=" << nonzero << '\n';
+                    }
+                    throw std::runtime_error{"All channels are silent."};
+                }
             }
 
             const auto factor = 1.0 / max_mag;

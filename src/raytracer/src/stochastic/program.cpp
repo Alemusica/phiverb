@@ -90,6 +90,16 @@ kernel void stochastic(const global reflection* reflections,
     const bands_type last_volume = stochastic_path[thread].volume;
     const bands_type outgoing = last_volume * reflectance;
 
+    const float scatter_probability = reflections[thread].scatter_probability;
+    const float diffuse_prob = fmax(scatter_probability, 1.0e-4f);
+    const float specular_prob = fmax(1.0f - scatter_probability, 1.0e-4f);
+    const bool sampled_diffuse = reflections[thread].sampled_diffuse;
+
+    const bands_type diffuse_component =
+            scattered(outgoing, reflective_surface.scattering);
+    const bands_type specular_component =
+            specular(outgoing, reflective_surface.scattering);
+
     const float3 last_position = stochastic_path[thread].position;
     const float3 this_position = reflections[thread].position;
 
@@ -98,9 +108,14 @@ kernel void stochastic(const global reflection* reflections,
     const float this_distance =
             last_distance + distance(last_position, this_position);
 
+    const bands_type propagated = sampled_diffuse
+                                          ? (diffuse_component / diffuse_prob)
+                                          : (specular_component /
+                                             specular_prob);
+
     //  set accumulator
     stochastic_path[thread] = (stochastic_path_info){
-            outgoing, this_position, this_distance};
+            propagated, this_position, this_distance};
 
     //  compute output
     
@@ -142,8 +157,7 @@ kernel void stochastic(const global reflection* reflections,
         const float angle_correction = 1 - sqrt(1 - sin_y * sin_y);
 
         const bands_type output_volume =
-                angle_correction * 2 * cos_angle *
-                scattered(outgoing, reflective_surface.scattering);
+                angle_correction * 2 * cos_angle * diffuse_component;
 
         //  set output
         stochastic_output[thread] =
