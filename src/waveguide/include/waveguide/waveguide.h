@@ -756,6 +756,15 @@ size_t run(const core::compute_context& cc,
             }
 
             if (error_flag & id_outside_mesh_error) {
+                const auto debug_info =
+                        core::read_from_buffer<cl_int>(queue, debug_info_buffer);
+                if (debug_info.size() >= 7) {
+                    std::cerr << "[waveguide] outside-mesh debug: node="
+                              << debug_info[1] << " locator=(" << debug_info[2]
+                              << ", " << debug_info[3] << ", " << debug_info[4]
+                              << ") direction=" << debug_info[5]
+                              << " slot=" << debug_info[6] << '\n';
+                }
                 throw std::runtime_error("Tried to read non-existant node.");
             }
 

@@ -10,17 +10,29 @@
 
 include(ExternalProject)
 find_package(Git REQUIRED)
+find_package(ZLIB REQUIRED)
+
+set(ZLIB_REAL_LIBRARY "${ZLIB_LIBRARY}")
+if(ZLIB_REAL_LIBRARY MATCHES "\\.tbd$")
+    string(REPLACE ".tbd" ".dylib" ZLIB_REAL_LIBRARY "${ZLIB_REAL_LIBRARY}")
+endif()
+
+set(WAYVERB_PATCH_SCRIPT ${CMAKE_SOURCE_DIR}/config/apply_patch_if_needed.sh)
 
 set(DEPENDENCY_INSTALL_PREFIX ${CMAKE_BINARY_DIR}/dependencies)
-
 set_directory_properties(PROPERTIES EP_PREFIX ${DEPENDENCY_INSTALL_PREFIX})
+set_property(DIRECTORY PROPERTY EP_BASE "${DEPENDENCY_INSTALL_PREFIX}")
 
 # Some dependencies depend on one-another - this ensures that we look for those
 # dependencies within the project, *before* looking in the normal system
 # location.
 set(CMAKE_MODULE_PATH ${DEPENDENCY_INSTALL_PREFIX} ${CMAKE_MODULE_PATH})
 
-set(GLOBAL_DEPENDENCY_CMAKE_FLAGS "-DCMAKE_MODULE_PATH=${DEPENDENCY_INSTALL_PREFIX}" "-DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+set(GLOBAL_DEPENDENCY_CMAKE_FLAGS
+    "-DCMAKE_MODULE_PATH=${DEPENDENCY_INSTALL_PREFIX}"
+    "-DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}"
+    "-DCMAKE_POLICY_DEFAULT_CMP0048=NEW"
+    "-DCMAKE_POLICY_VERSION_MINIMUM=3.5")
 
 set(ENV_SETTINGS "MACOSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}")
 
@@ -41,17 +53,31 @@ ExternalProject_Add(
 ExternalProject_Add(
     assimp_external
     DOWNLOAD_COMMAND ${GIT_EXECUTABLE} clone --depth 1 --branch v3.3.1 https://github.com/assimp/assimp.git assimp_external
-    PATCH_COMMAND ${GIT_EXECUTABLE} apply ${CMAKE_SOURCE_DIR}/config/fix_assimp.patch
-    CMAKE_ARGS ${GLOBAL_DEPENDENCY_CMAKE_FLAGS} -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR> -DASSIMP_BUILD_TESTS=OFF -DASSIMP_BUILD_STATIC_LIB=ON -DBUILD_SHARED_LIBS=OFF -DASSIMP_BUILD_ZLIB=ON -DCMAKE_CXX_VISIBILITY_PRESET=hidden -DCMAKE_VISIBILITY_INLINES_HIDDEN=ON
+    PATCH_COMMAND ${WAYVERB_PATCH_SCRIPT} ${CMAKE_SOURCE_DIR}/config/fix_assimp.patch .wayverb_assimp_patch_applied ${GIT_EXECUTABLE}
+    CMAKE_ARGS ${GLOBAL_DEPENDENCY_CMAKE_FLAGS}
+               -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
+               -DASSIMP_BUILD_TESTS=OFF
+               -DASSIMP_BUILD_STATIC_LIB=ON
+               -DBUILD_SHARED_LIBS=OFF
+               -DASSIMP_BUILD_ZLIB=OFF
+               -DZLIB_USE_STATIC_LIBS=OFF
+               "-DZLIB_LIBRARY=${ZLIB_LIBRARY}"
+               "-DZLIB_INCLUDE_DIR=${ZLIB_INCLUDE_DIR}"
+               -DCMAKE_CXX_VISIBILITY_PRESET=hidden
+               -DCMAKE_VISIBILITY_INLINES_HIDDEN=ON
 )
 
 add_library(assimp UNKNOWN IMPORTED)
 add_dependencies(assimp assimp_external) 
 set_property(TARGET assimp PROPERTY IMPORTED_LOCATION ${DEPENDENCY_INSTALL_PREFIX}/lib/libassimp.a)
 
-add_library(zlibstatic UNKNOWN IMPORTED)
-add_dependencies(zlibstatic assimp_external) 
-set_property(TARGET zlibstatic PROPERTY IMPORTED_LOCATION ${DEPENDENCY_INSTALL_PREFIX}/lib/libzlibstatic.a)
+add_custom_target(zlibstatic_stub ALL
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${DEPENDENCY_INSTALL_PREFIX}/lib
+    COMMAND ${CMAKE_COMMAND} -E remove -f "${DEPENDENCY_INSTALL_PREFIX}/lib/libzlibstatic.tbd"
+    COMMAND ${CMAKE_COMMAND} -E remove -f "${DEPENDENCY_INSTALL_PREFIX}/lib/libzlibstatic.dylib"
+    COMMAND ${CMAKE_COMMAND} -E create_symlink "${ZLIB_LIBRARY}" "${DEPENDENCY_INSTALL_PREFIX}/lib/libzlibstatic.tbd"
+    COMMAND ${CMAKE_COMMAND} -E create_symlink "${ZLIB_REAL_LIBRARY}" "${DEPENDENCY_INSTALL_PREFIX}/lib/libzlibstatic.dylib"
+    COMMENT "Providing compatibility shim for legacy zlibstatic consumers")
 
 # fftw3 float ##################################################################
 
@@ -112,7 +138,7 @@ set_property(TARGET gtest PROPERTY IMPORTED_LOCATION ${DEPENDENCY_INSTALL_PREFIX
 ExternalProject_Add(
     cereal_external
     DOWNLOAD_COMMAND ${GIT_EXECUTABLE} clone --depth 1 --branch v1.2.1 https://github.com/USCiLab/cereal.git cereal_external
-    PATCH_COMMAND ${GIT_EXECUTABLE} apply ${CMAKE_SOURCE_DIR}/config/fix_cereal_tuple.patch
+    PATCH_COMMAND ${WAYVERB_PATCH_SCRIPT} ${CMAKE_SOURCE_DIR}/config/fix_cereal_tuple.patch .wayverb_cereal_patch_applied ${GIT_EXECUTABLE}
     CMAKE_ARGS ${GLOBAL_DEPENDENCY_CMAKE_FLAGS} -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR> -DJUST_INSTALL_CEREAL=ON
 )
 

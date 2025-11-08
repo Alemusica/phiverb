@@ -19,6 +19,26 @@ constexpr auto source=R"(
 #define PRINT_ULONG(VAR) printf("%ld\n", (VAR));
 #define PRINT_FLOAT(VAR) printf("%2.2f\n", (VAR));
 
+float wrap_unit(float x) { return x - floor(x); }
+float clamp01(float x) { return fmin(fmax(x, 0.0f), 1.0f); }
+
+float3 build_tangent(float3 n) {
+    const float3 up = fabs(n.z) < 0.999f ? (float3)(0.0f, 0.0f, 1.0f)
+                                         : (float3)(0.0f, 1.0f, 0.0f);
+    return normalize(cross(up, n));
+}
+
+float3 cosine_weighted_direction(float3 normal, float u1, float u2) {
+    const float phi = 2.0f * (float)M_PI * wrap_unit(u1);
+    const float r = sqrt(clamp01(u2));
+    const float x = r * cos(phi);
+    const float y = r * sin(phi);
+    const float z = sqrt(fmax(0.0f, 1.0f - clamp01(u2)));
+    const float3 tangent = build_tangent(normal);
+    const float3 bitangent = cross(normal, tangent);
+    return normalize(tangent * x + bitangent * y + normal * z);
+}
+
 float3 mirror_point(float3 p, triangle_verts t);
 float3 mirror_point(float3 p, triangle_verts t) {
     const float3 n = triangle_verts_normal(t);
@@ -52,7 +72,10 @@ kernel void init_reflections(global reflection* reflections) {
     const size_t thread = get_global_id(0);
     reflections[thread] = (reflection){(float3)(0),
                                        ~(uint)0,
+                                       0.0f,
                                        (char)true,
+                                       (char)0,
+                                       (char)0,
                                        (char)0};
 }
 
@@ -129,24 +152,30 @@ kernel void reflections(global ray* rays,  //  ray
                                      vertices,
                                      closest_intersection.index);
 
+    //  find the scattering
+    const float z = rng[2 * thread + 0];
+    const float theta = rng[2 * thread + 1];
+    const surface s = surfaces[closest_triangle.surface];
+    const float scatter_prob = clamp01(mean(s.scattering));
+
+    const float u_branch = clamp01(0.5f * (z + 1.0f));
+    const float u_phi =
+            clamp01((theta + (float)M_PI) / (2.0f * (float)M_PI));
+    const float u_mag = wrap_unit(u_branch * 0.723605f + 0.125f);
+
+    const bool choose_diffuse =
+            scatter_prob > 0.0f && u_branch < scatter_prob;
+    const float3 diffuse_dir = cosine_weighted_direction(tnorm, u_phi, u_mag);
+    const float3 scattering = choose_diffuse ? diffuse_dir : specular;
+
     //  now we can populate the output
     reflections[thread] = (reflection){intersection_pt,
                                        closest_intersection.index,
+                                       scatter_prob,
                                        true,
-                                       is_intersection};
-
-    //  we also need to find the next ray to trace
-
-    //  find the scattering
-    //  get random values to influence direction of reflected ray
-    const float z = rng[2 * thread + 0];
-    const float theta = rng[2 * thread + 1];
-    const float3 random_unit_vector = sphere_point(z, theta);
-    //  scattering coefficient is the average of the diffuse coefficients
-    const surface s = surfaces[closest_triangle.surface];
-    const float scatter = mean(s.scattering);
-    const float3 scattering =
-            lambert_scattering(specular, tnorm, random_unit_vector, scatter);
+                                       is_intersection,
+                                       (char)choose_diffuse,
+                                       (char)0};
 
     //  find the next ray to trace
     rays[thread] = (ray){intersection_pt, scattering};

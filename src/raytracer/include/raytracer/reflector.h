@@ -12,6 +12,9 @@
 
 #include "glm/glm.hpp"
 
+#include <cstdint>
+#include <random>
+
 namespace wayverb {
 namespace raytracer {
 
@@ -28,7 +31,8 @@ public:
     reflector(const core::compute_context& cc,
               const glm::vec3& receiver,
               It b,
-              It e)
+              It e,
+              std::uint64_t rng_seed = 0x9E3779B97F4A7C15ull)
             : cc_{cc}
             , queue_{cc.context, cc.device}
             , kernel_{program{cc}.get_kernel()}
@@ -46,7 +50,8 @@ public:
                                  rays_ * sizeof(reflection)}
             , rng_buffer_{cc.context,
                           CL_MEM_READ_WRITE,
-                          rays_ * 2 * sizeof(cl_float)} {
+                          rays_ * 2 * sizeof(cl_float)}
+            , rng_engine_{rng_seed} {
         program{cc_}.get_init_reflections_kernel()(
                 cl::EnqueueArgs{queue_, cl::NDRange{rays_}},
                 reflection_buffer_);
@@ -77,6 +82,9 @@ private:
     cl::Buffer reflection_buffer_;
 
     cl::Buffer rng_buffer_;
+    std::mt19937_64 rng_engine_;
+
+    util::aligned::vector<cl_float> generate_direction_rng(size_t num);
 };
 
 }  // namespace raytracer

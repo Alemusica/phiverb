@@ -45,7 +45,7 @@ bool operator!=(const single_band_waveguide& a, const single_band_waveguide& b);
 class multiple_band_waveguide final
         : public basic_member<multiple_band_waveguide> {
 public:
-    explicit multiple_band_waveguide(size_t bands = 2,
+    explicit multiple_band_waveguide(size_t bands = 3,
                                      double cutoff = 500,
                                      double usable_portion = 0.6);
 
@@ -88,7 +88,7 @@ public:
     enum class mode { single, multiple };
 
     explicit waveguide(
-            mode mode = mode::single,
+            mode mode = mode::multiple,
             single_band_waveguide single = single_band_waveguide{},
             multiple_band_waveguide multiple = multiple_band_waveguide{});
 

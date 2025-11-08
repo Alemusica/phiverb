@@ -10,6 +10,8 @@
 #include "core/nan_checking.h"
 #include "core/pressure_intensity.h"
 #include "core/spatial_division/scene_buffers.h"
+
+#include <cstdint>
 #include "core/spatial_division/voxelised_scene_data.h"
 
 #include "raytracer/reflection_processor/image_source.h"
@@ -198,7 +200,8 @@ auto run(
         const core::environment& environment,
         const std::atomic_bool& keep_going,
         PerStepCallback&& per_step_callback,
-        Callbacks&& callbacks) {
+        Callbacks&& callbacks,
+        std::uint64_t rng_seed = 0x9E3779B97F4A7C15ull) {
     const core::scene_buffers buffers{cc.context, voxelised};
 
     const auto make_ray_iterator = [&](auto it) {
@@ -223,7 +226,11 @@ auto run(
     const auto run_segment = [&](auto b, auto e) {
         const auto num_directions = std::distance(b, e);
 
-        reflector ref{cc, receiver, make_ray_iterator(b), make_ray_iterator(e)};
+        reflector ref{cc,
+                      receiver,
+                      make_ray_iterator(b),
+                      make_ray_iterator(e),
+                      rng_seed};
 
         auto group_processors = util::apply_each(
                 util::map(make_get_group_processor_functor_adapter{},

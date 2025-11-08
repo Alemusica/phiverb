@@ -64,7 +64,7 @@ struct reflector_fixture : public ::testing::Test {
     const util::aligned::vector<geo::ray> rays{badly_behaved_rays};
 #endif
 
-    reflector reflector{cc, receiver, begin(rays), end(rays)};
+    reflector reflector{cc, receiver, begin(rays), end(rays), 42};
 
     auto get_fast_intersections() {
         const auto rays = reflector.get_rays();

@@ -2911,7 +2911,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 10.13;
 				MACOSX_DEPLOYMENT_TARGET_ppc = 10.4;
 				OTHER_CPLUSPLUSFLAGS = "-I../../../src/audio_file/include -I../../../src/combined/include -I../../../src/core/include -I../../../src/frequency_domain/include -I../../../src/hrtf/lib/include -I../../../src/raytracer/include -I../../../src/utilities/include -I../../../src/waveguide/include -I../../../build/include -I../../../build/dependencies/include";
-				OTHER_LDFLAGS = "-L../../../build/lib -L../../../build/dependencies/lib -lassimp -laudio_file -lcombined -lcompensation_signal -lcore -lfftw3 -lfftw3f -lfrequency_domain -litpp_static -lmodern_gl_utils -lraytracer -lsamplerate -lsndfile -lutilities -lwaveguide -lzlibstatic";
+				OTHER_LDFLAGS = "-L../../../build/lib -L../../../build/dependencies/lib -lassimp -laudio_file -lcombined -lcompensation_signal -lcore -lfftw3 -lfftw3f -lfrequency_domain -litpp_static -lmodern_gl_utils -lraytracer -lsamplerate -lsndfile -lutilities -lwaveguide -lz";
 				PRODUCT_BUNDLE_IDENTIFIER = com.reubenthomas.wayverb;
 				SDKROOT_ppc = macosx10.5; }; name = Debug; };
 		E028DB616C197D40ABE048CC = {isa = XCBuildConfiguration; buildSettings = {
@@ -2938,7 +2938,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 10.13;
 				MACOSX_DEPLOYMENT_TARGET_ppc = 10.4;
 				OTHER_CPLUSPLUSFLAGS = "-I../../../src/audio_file/include -I../../../src/combined/include -I../../../src/core/include -I../../../src/frequency_domain/include -I../../../src/hrtf/lib/include -I../../../src/raytracer/include -I../../../src/utilities/include -I../../../src/waveguide/include -I../../../build/include -I../../../build/dependencies/include";
-				OTHER_LDFLAGS = "-L../../../build/lib -L../../../build/dependencies/lib -lassimp -laudio_file -lcombined -lcompensation_signal -lcore -lfftw3 -lfftw3f -lfrequency_domain -litpp_static -lmodern_gl_utils -lraytracer -lsamplerate -lsndfile -lutilities -lwaveguide -lzlibstatic";
+				OTHER_LDFLAGS = "-L../../../build/lib -L../../../build/dependencies/lib -lassimp -laudio_file -lcombined -lcompensation_signal -lcore -lfftw3 -lfftw3f -lfrequency_domain -litpp_static -lmodern_gl_utils -lraytracer -lsamplerate -lsndfile -lutilities -lwaveguide -lz";
 				PRODUCT_BUNDLE_IDENTIFIER = com.reubenthomas.wayverb;
 				SDKROOT_ppc = macosx10.5; }; name = Release; };
 		4AACEBB4BDB889BEC90E6D28 = {isa = XCBuildConfiguration; buildSettings = {
@@ -2985,7 +2985,7 @@
 		1F206EFD94A517FA5C3C68B1 = {isa = XCConfigurationList; buildConfigurations = (
 					CC808053E0FC96863D08F79B,
 					E028DB616C197D40ABE048CC, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Debug; };
-		01363CDFD8A66C1F27CE6FCD = {isa = PBXShellScriptBuildPhase; buildActionMask = 2147483647; files = (  ); runOnlyForDeploymentPostprocessing = 0; name = "Pre-build script"; shellPath = /bin/sh; shellScript = "cd ../../../ && ./build.sh"; };
+		01363CDFD8A66C1F27CE6FCD = {isa = PBXShellScriptBuildPhase; buildActionMask = 2147483647; files = (  ); runOnlyForDeploymentPostprocessing = 0; name = "Pre-build script"; shellPath = /bin/sh; shellScript = "cd ../../../ && WAYVERB_BUILD_DIR=build-prebuild ./build.sh"; };
 		211B7C814D5087610F9D3486 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (
 					196599E2E23BDB5A8074AE71,
 					00E49298367FE985E3C477C6, ); runOnlyForDeploymentPostprocessing = 0; };

@@ -17,16 +17,17 @@ public:
 
 private:
     void run_analysis();
-    void sync_from_model();
-    void apply_to_model();
+    void open_mesh_tools_doc();
+    void reveal_mesh_folder();
 
     ::main_model& model_;
 
-    Label title_{}, report_{};
-    ToggleButton sanitize_toggle_{"Sanitize on render (weld/remove degenerates)"};
+    Label title_{}, report_{}, instructions_{};
     TextEditor epsilon_edit_{};
     TextButton analyze_btn_{"Analyze"};
     TextButton open_logs_btn_{"Open Logs Folder"};
+    TextButton mesh_tools_btn_{"Open Mesh Tools Guide"};
+    TextButton mesh_folder_btn_{"Open geometrie_wayverb Folder"};
 };
 
 }  // namespace geometry

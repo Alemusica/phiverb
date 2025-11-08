@@ -116,6 +116,13 @@ you might need by running this command:
 
     brew install cmake autoconf autogen automake libtool pkg-config
 
+## Apple Silicon (M‑series) notes
+
+See `docs/APPLE_SILICON.md` for the current Apple Silicon status, how to run
+with logs, Geometry tools, performance knobs (to keep the GPU saturated on
+large scenes), and the optional Metal backend (under feature flag) being
+developed in branch `feature/metal-apple-silicon`.
+
 # Project Structure
 
 ## Important Folders
