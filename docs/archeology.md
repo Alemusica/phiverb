@@ -35,6 +35,7 @@ dell'analisi di `todo.md`, dei commenti inline e dei log recenti.
 - `tools/run_regression_suite.sh` — esegue `bin/apple_silicon_regression` su tutte le scene forzando `WAYVERB_ALLOW_SILENT_FALLBACK=0`.
 - `bin/wayverb_cli` — CLI sintetica che genera IR (per la QA EDC/Txx finché il solver fisico non è integrato).
 - `scripts/monitor_app_log.sh` — monitora i log emettendo timestamp e le nuove metriche `[combined]`.
+- `docs/agent_runbook.md` — runbook operativo che riunisce branch policy, log obbligatori, checkpoint e requisiti di salvaging.
 
 Usare questi artefatti come reference prima di toccare ciascun cluster e aggiornare il documento quando emergono nuove evidenze.
 

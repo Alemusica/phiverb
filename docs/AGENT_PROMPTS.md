@@ -1,5 +1,7 @@
 # Agent Prompts / Hand-off Notes
 
+> Tutti gli agenti devono leggere e seguire la Runbook (`docs/agent_runbook.md`). Le sezioni sotto aggiungono solo specifiche tecniche.
+
 ## Raytracer (worktree `PhiVerb-rt`, branch `rt/...`)
 
 - Prima di continuare, apri `docs_source/boundary.md` e leggi il blocco
@@ -19,12 +21,9 @@
 
 Mantieni questo file aggiornato se cambiano le direttive operative.
 
-## Agent Ops / Token Guard
+## Agent Ops / Token Guard (riassunto Runbook)
 
-- Runner macOS/Metal: quando il self-hosted `self-hosted, macos, metal` è attivo, conferma nel log della PR con `runner=macos-metal ready` (fallisce la CI se manca il label, quindi tienilo monitorato).
-- Controlla sempre il budget di token prima di dumpare output lunghi: `scripts/agents/token_guard.sh path/al/file.md` oppure `... | scripts/agents/token_guard.sh`.
-- Regole di checkpoint:
-  1. 20%: apri una PR in draft (anche vuota).
-  2. 60%: esegui `scripts/agents/checkpoint_or_pr.sh` per salvare lo stato.
-  3. 80%: la PR deve esistere e va aggiornata con l’ID dell’action plan.
-  4. 90%: nuovo checkpoint + esci; se servono info, usa `scripts/ask/...`.
+- Segui la Runbook per worktree obbligatori, log (`tools/run_wayverb.sh` + `scripts/monitor_app_log.sh`), regressioni (`tools/run_regression_suite.sh`) e gestione mesh `geometrie_wayverb/`.
+- Runner macOS/Metal: quando il self-hosted `self-hosted, macos, metal` è attivo, commenta `runner=macos-metal ready` sulla PR (la CI fallisce se manca).
+- Token guard: prima di output >1k token usa `scripts/agents/token_guard.sh ...`; se entra in stato giallo/rosso rispetta i checkpoint descritti nella Runbook.
+- Checkpoint obbligatori (20/60/80/90%) e riferimenti ai log/action plan sono verificati via template PR; vedi `docs/agent_runbook.md` §3-4.

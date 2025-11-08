@@ -1,7 +1,7 @@
 # Wayverb Archeology Action Plan
 
 Questo file vive nel repo e rimane il riferimento unico per tenere traccia
-dell'avanzamento. Ogni blocco ha:
+dell'avanzamento. Consultalo insieme alla [Runbook](agent_runbook.md): quando completi una voce devi aggiornare entrambi dove pertinente. Ogni blocco ha:
 
 - **Descrizione** e **path** dei file coinvolti.
 - **Checklist** con criteri di accettazione.
