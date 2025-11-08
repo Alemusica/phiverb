@@ -1,0 +1,126 @@
+name: control-room
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  route:
+    if: contains(github.event.issue.title, 'Control Room')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: parse
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = (context.payload.comment.body || '').trim();
+            core.setOutput('body', body);
+            let cmd = 'unknown';
+            if (body.startsWith('/run'))    cmd = 'run';
+            if (body.startsWith('/codex'))  cmd = 'codex';
+            if (body.startsWith('/status')) cmd = 'status';
+            if (body.startsWith('/merge'))  cmd = 'merge';
+            core.setOutput('cmd', cmd);
+
+            const kv = {};
+            for (const part of body.split(/\s+/)) {
+              const m = part.match(/^(\w+):(.*)$/);
+              if (m) kv[m[1]] = m[2];
+            }
+            for (const [k,v] of Object.entries(kv)) core.setOutput(k, v);
+
+      - name: Dispatch agent-run
+        if: steps.parse.outputs.cmd == 'run'
+        uses: actions/github-script@v7
+        env:
+          AGENT:  ${{ steps.parse.outputs.agent }}
+          BRANCH: ${{ steps.parse.outputs.branch }}
+          TESTS:  ${{ steps.parse.outputs.tests }}
+        with:
+          script: |
+            await github.rest.repos.createDispatchEvent({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              event_type: 'agent-run',
+              client_payload: {
+                agent:  process.env.AGENT  || '',
+                branch: process.env.BRANCH || '',
+                tests:  process.env.TESTS  || '',
+                issue:  context.payload.issue.number
+              }
+            });
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body: `▶️ Dispatch \`${process.env.AGENT}\` on branch \`${process.env.BRANCH||'main'}\` tests=\`${process.env.TESTS||'default'}\` → running on self-hosted.`
+            });
+
+      - name: Update Codex inbox
+        if: steps.parse.outputs.cmd == 'codex'
+        run: |
+          set -e
+          mkdir -p ops
+          TS="$(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          AUTHOR="${{ github.event.comment.user.login }}"
+          BODY="${{ steps.parse.outputs.body }}"
+          CONTENT="${BODY#/codex }"
+          {
+            echo "## $TS — from @${AUTHOR}"
+            echo
+            echo "$CONTENT"
+            echo
+            echo "---"
+            echo
+          } >> ops/CODEX_INBOX.md
+
+          git config user.name  "control-room-bot"
+          git config user.email "control-room-bot@users.noreply.github.com"
+          git add ops/CODEX_INBOX.md
+          git commit -m "chore(inbox): add Codex task from @${AUTHOR} [skip ci]" || echo "No Codex inbox changes"
+          git push
+
+      - name: Status reply
+        if: steps.parse.outputs.cmd == 'status'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body: `ℹ️ Actions: ${runUrl}\nPRs: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/pulls\nCodex inbox: ops/CODEX_INBOX.md`
+            });
+
+      - name: Merge PR
+        if: steps.parse.outputs.cmd == 'merge'
+        uses: actions/github-script@v7
+        env:
+          PRNUM: ${{ steps.parse.outputs.pr }}
+        with:
+          script: |
+            const pr = Number(process.env.PRNUM || '0');
+            if (!pr) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                body: '❌ Uso: `/merge pr:#<numero>`'
+              });
+            } else {
+              await github.rest.pulls.merge({
+                owner: context.repo.owner, repo: context.repo.repo,
+                pull_number: pr, merge_method: 'squash'
+              });
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                body: `✅ PR #${pr} merged (squash).`
+              });
+            }
+
