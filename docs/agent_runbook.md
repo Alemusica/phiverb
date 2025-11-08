@@ -34,6 +34,9 @@ Rules:
    - 90 %: final checkpoint then stop unless the maintainer assigns more work.
 3. CI runner guard: when the macOS Metal runner is online, comment `runner=macos-metal ready` on the PR so the workflow can start. Missing tag = failed CI.
 
+### Failure/debug policy
+- Non superare 5 tentativi consecutivi sullo stesso test/failure senza nuova evidenza: se dopo la quinta iterazione il problema persiste, apri un’ASK (`docs/archeology.md`) o escalalo al Control Room con i log (`build/logs/...`) e le note del diario. Solo dopo la risposta riprendi i tweak.
+
 ## 4. Control-Room Dev Diary
 - Ogni agente deve annotare le decisioni significative nel diario sotto `logs/control_room/`.
 - Usa lo script `scripts/agents/log_note.sh "messaggio"` (oppure pipando testo): registra timestamp, branch e nota.

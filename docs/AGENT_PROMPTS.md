@@ -28,5 +28,6 @@ Mantieni questo file aggiornato se cambiano le direttive operative.
 - Segui la Runbook per worktree obbligatori, log (`tools/run_wayverb.sh` + `scripts/monitor_app_log.sh`), regressioni (`tools/run_regression_suite.sh`) e gestione mesh `geometrie_wayverb/`.
 - Runner macOS/Metal: quando il self-hosted `self-hosted, macos, metal` è attivo, commenta `runner=macos-metal ready` sulla PR (la CI fallisce se manca).
 - Dev diary: logga ogni sessione con `scripts/agents/log_note.sh "messaggio"` (file `logs/control_room/<agent>.md`) e referenzia quelle note in PR/action plan. Quando completi una voce dell’Action Plan, spunta la checkbox in `docs/action_plan.md` e cita log/commit.
+- Policy di debug: dopo 5 tentativi/fallimenti consecutivi dello stesso test devi fermarti e aprire un’ASK (via `docs/archeology.md`/Control Room) con log e note; riprendi solo dopo feedback.
 - Token guard: prima di output >1k token usa `scripts/agents/token_guard.sh ...`; se entra in stato giallo/rosso rispetta i checkpoint descritti nella Runbook.
 - Checkpoint obbligatori (20/60/80/90%) e riferimenti ai log/action plan sono verificati via template PR; vedi `docs/agent_runbook.md` §3-5.
