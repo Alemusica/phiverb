@@ -42,6 +42,7 @@ Rules:
 - Usa lo script `scripts/agents/log_note.sh "messaggio"` (oppure pipando testo): registra timestamp, branch e nota.
 - A inizio sessione logga il piano di lavoro; logga di nuovo dopo ogni milestone (nuovi test, regressioni, issue).
 - Cita sempre le entry rilevanti nel template PR (vedi sezione successiva).
+- I file di processo (`docs/agent_runbook.md`, `docs/AGENT_PROMPTS.md`, `docs/archeology.md`, `docs/action_plan.md`, `.github/pull_request_template.md`) sono read-only nei worktree: se risultano modificati, esegui `git checkout -- <file>` prima di fare `git pull origin infra/control-room`; non vanno mai mergiati manualmente.
 
 ## 5. PR Template Fields (enforced)
 Every PR must fill out:

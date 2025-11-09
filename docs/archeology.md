@@ -15,6 +15,9 @@ dell'analisi di `todo.md`, dei commenti inline e dei log recenti.
    - PCS con massa placeholder e soft source instabile (`waveguide/pcs.h`).
    - Boundary modelling “unbelievably slow” e ancora basato su ricerche del triangolo più vicino (`waveguide/canonical.h`, `boundary_coefficient_program.cpp`).
    - Dev log 2025‑11 documenta NaN multi-band ai corner e guard-tag in corso d’opera.
+   - Pipeline SDF/DIF documentata: `scripts/waveguide_precompute.py` genera i volumi (`geometrie_wayverb/shoebox_small.sdf.npz`) e i materiali (`geometrie_wayverb/shoebox_small.dif.json` da `assets/materials/ptb_shoebox.json`), così i kernel non devono più stimare i triangoli a runtime.
+   - QA attuale: `scripts/qa/run_validation_suite.py --cli build/bin/wayverb_cli/wayverb_cli` ora applica 10 ms di slack assoluto sui bound Sabine/Eyring per assorbire il jitter dei T20/T30; log verde: `build/logs/app/validation-20251108-213659.log`.
+   - Regressioni Apple Silicon (`tools/run_regression_suite.sh geometrie_wayverb/shoebox_small.obj` e `.../shoebox_long.obj`) girano con la pipeline SDF/DIF attiva; log: `build/logs/regressions/regression-20251108-221155.log` e `build/logs/regressions/regression-20251108-221304.log`.
 
 3. **Metal backend**
    - `combined/src/waveguide_metal.cpp` esplicita che le progress callbacks non sono ancora implementate.
@@ -62,6 +65,7 @@ Usare questi artefatti come reference prima di toccare ciascun cluster e aggiorn
 
 ## Open Questions (ASK)
 <!-- BEGIN ASK-LIST -->
+<<<<<<< HEAD
 - **2025-11-09 – Resolved 2025-11-09** — *All shoebox/stochastic tests fail after enforcing “diffuse-only-after-scatter” rule; need guidance on expected pipeline contract*  
   - **Context**: Branch `rt/AP-RT-002-diffuse-rain`. After implementing the ASK from 2025‑11‑08 (separate deterministic vs. diffuse accumulators, `has_scattered` gate), the targeted tests passed individually. Running the full suite (`build/src/raytracer/tests/raytracer_tests --gtest_filter='stochastic.*:raytracer_reverb.*'`) now fails on:  
     1. `raytracer_reverb.shoebox_ism_rt_parity` (peak misaligned by ~3k samples, >90 dB error)  
@@ -112,4 +116,7 @@ build/src/raytracer/tests/raytracer_tests --gtest_filter='stochastic.*:raytracer
   - **GPT‑5 guidance (2025‑11‑09)**: Trattare T30 come stima di RT60 (ISO 3382), mantenere la soglia relativa ±15% ma (1) correggere le etichette Sabine/Eyring e (2) introdurre un guard band ±2% sui bound assoluti per coprire discretizzazione e repeatability (ancora più stringente dei 5–10% tipici nei dati RT). Facoltativo: aggiornare in futuro i materiali/occupazione della scena per derivare ᾱ da superfici reali.  
   - **Action**: aggiornati `scripts/qa/rt_bounds.py` e `scripts/qa/run_validation_suite.py` per restituire bound raw + buffered, stampare i nomi corretti e applicare `lo = min(S,E)*(1-0.02)`, `hi = max(S,E)*(1+0.02)` oltre al controllo ±15%. Annotato tutto nel Control Room log (`logs/control_room/alessioivoycazzaniga.md`) e rerun del QA: sia `aula_medium` sia `shoebox_small` sono verdi.
 
+=======
+1. **AP-RT-002 / stochastic kernel** — Specular-only shoebox (scatter_probability = 0) leaked energy into the diffuse rain pipeline. GPT‑5 Pro reply: when s == 0, no energy must enter `stochastic_path_info.physical`; gate deposits on `(1-α)*s`, mark `has_scattered`, and skip diffuse emission if a path never scattered. Optionally bypass the stochastic pass entirely when the scene has no scattering. (2025‑11‑08)
+>>>>>>> dwm/soa-pcs-guard-tooling
 <!-- END ASK-LIST -->

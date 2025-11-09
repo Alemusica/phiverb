@@ -96,14 +96,16 @@ public:
          const glm::vec3& receiver,
          const core::environment& environment,
          const raytracer::simulation_parameters& raytracer,
-         std::unique_ptr<waveguide_base> waveguide)
+         std::unique_ptr<waveguide_base> waveguide,
+         std::shared_ptr<waveguide::precomputed_inputs> precomputed_inputs)
             : compute_context_{compute_context}
             , voxels_and_mesh_{waveguide::compute_voxels_and_mesh(
                       compute_context,
                       scene_data,
                       receiver,
                       waveguide->compute_sampling_frequency(),
-                      environment.speed_of_sound)}
+                      environment.speed_of_sound,
+                      std::move(precomputed_inputs))}
             , room_volume_{estimate_volume(voxels_and_mesh_.mesh)}
             , source_{source}
             , receiver_{receiver}
@@ -263,14 +265,16 @@ engine::engine(const core::compute_context& compute_context,
                const glm::vec3& receiver,
                const core::environment& environment,
                const raytracer::simulation_parameters& raytracer,
-               std::unique_ptr<waveguide_base> waveguide)
+               std::unique_ptr<waveguide_base> waveguide,
+               std::shared_ptr<waveguide::precomputed_inputs> precomputed_inputs)
         : pimpl_{std::make_unique<impl>(compute_context,
                                         scene_data,
                                         source,
                                         receiver,
                                         environment,
                                         raytracer,
-                                        std::move(waveguide))} {}
+                                        std::move(waveguide),
+                                        std::move(precomputed_inputs))} {}
 
 engine::~engine() noexcept = default;
 

@@ -184,26 +184,6 @@ inline void record_pressure_nan(global int* debug_info,
     }
 }
 
-inline void record_outside_mesh_error(global int* debug_info,
-                                      uint global_index,
-                                      int3 locator,
-                                      int direction_code,
-                                      int slot_index) {
-    if (debug_info == 0) {
-        return;
-    }
-    volatile global int* flag = (volatile global int*)debug_info;
-    if (atomic_cmpxchg(flag, 0, 1) == 0) {
-        debug_info[0] = id_outside_mesh_error;
-        debug_info[1] = (int)global_index;
-        debug_info[2] = locator.x;
-        debug_info[3] = locator.y;
-        debug_info[4] = locator.z;
-        debug_info[5] = direction_code;
-        debug_info[6] = slot_index;
-    }
-}
-
 typedef struct {
     uint kind;
     uint step;
@@ -339,8 +319,9 @@ void ghost_point_pressure_update(
         float next_pressure,
         float prev_pressure,
         float inner_pressure,
-        global boundary_data* bd,
+        global memory_canonical* filter_memory,
         const global coefficients_canonical* boundary,
+        uint coeff_index,
         volatile global int* error_flag,
         global int* debug_info,
         uint global_index,
@@ -352,8 +333,9 @@ void ghost_point_pressure_update(
         float next_pressure,
         float prev_pressure,
         float inner_pressure,
-        global boundary_data* bd,
+        global memory_canonical* filter_memory,
         const global coefficients_canonical* boundary,
+        uint coeff_index,
         volatile global int* error_flag,
         global int* debug_info,
         uint global_index,
@@ -383,14 +365,14 @@ void ghost_point_pressure_update(
     if (fabs((float)b0) < 1.0e-12f && fabs((float)a0) < 1.0e-12f) {
         return;
     }
-    filt_real filt_state = bd->filter_memory.array[0];
+    filt_real filt_state = filter_memory->array[0];
     if (!isfinite(filt_state)) {
         filt_state = 0;
     }
     bool reset_memory = false;
 #pragma unroll
     for (int k = 0; k != CANONICAL_FILTER_ORDER; ++k) {
-        const float value = (float)bd->filter_memory.array[k];
+        const float value = (float)filter_memory->array[k];
         if (!isfinite(value) || fabs(value) > kFilterMemoryLimit) {
             reset_memory = true;
             break;
@@ -403,7 +385,7 @@ void ghost_point_pressure_update(
                    global_index,
                    boundary_index,
                    local_idx,
-                   bd->coefficient_index,
+                   (int)coeff_index,
                    filt_state_bits,
                    (float)a0,
                    (float)b0,
@@ -413,14 +395,14 @@ void ghost_point_pressure_update(
                    next_pressure);
 #pragma unroll
         for (int k = 0; k != CANONICAL_FILTER_ORDER; ++k) {
-            bd->filter_memory.array[k] = (filt_real)0;
+            filter_memory->array[k] = (filt_real)0;
         }
         filt_state = 0;
     }
 
     const float delta = prev_pressure - next_pressure;
     if (delta == 0.0f && (float)filt_state == 0.0f) {
-        bd->filter_memory.array[0] = 0;
+        filter_memory->array[0] = 0;
         return;
     }
 
@@ -435,7 +417,7 @@ void ghost_point_pressure_update(
                    global_index,
                    boundary_index,
                    local_idx,
-                   bd->coefficient_index,
+                   (int)coeff_index,
                    (float)filt_state,
                    (float)a0,
                    (float)b0,
@@ -443,7 +425,7 @@ void ghost_point_pressure_update(
                    0.0f,
                    prev_pressure,
                    next_pressure);
-        bd->filter_memory.array[0] = (filt_real)nan((uint)0);
+        filter_memory->array[0] = (filt_real)nan((uint)0);
         return;
     }
     const float filter_input = -diff;
@@ -454,7 +436,7 @@ void ghost_point_pressure_update(
                    global_index,
                    boundary_index,
                    local_idx,
-                   bd->coefficient_index,
+                   (int)coeff_index,
                    (float)filt_state,
                    (float)a0,
                    (float)b0,
@@ -462,13 +444,13 @@ void ghost_point_pressure_update(
                    (float)filter_input,
                    prev_pressure,
                    next_pressure);
-        bd->filter_memory.array[0] = (filt_real)nan((uint)0);
+        filter_memory->array[0] = (filt_real)nan((uint)0);
         return;
     }
     memory_canonical local_memory;
 #pragma unroll
     for (int k = 0; k != CANONICAL_FILTER_ORDER; ++k) {
-        local_memory.array[k] = bd->filter_memory.array[k];
+        local_memory.array[k] = filter_memory->array[k];
     }
 
     const filt_real output =
@@ -480,7 +462,7 @@ void ghost_point_pressure_update(
                    global_index,
                    boundary_index,
                    local_idx,
-                   bd->coefficient_index,
+                   (int)coeff_index,
                    (float)filt_state,
                    (float)a0,
                    (float)b0,
@@ -504,7 +486,7 @@ void ghost_point_pressure_update(
                    global_index,
                    boundary_index,
                    local_idx,
-                   bd->coefficient_index,
+                   coeff_index,
                    (float)filt_state,
                    (float)a0,
                    (float)b0,
@@ -515,11 +497,169 @@ void ghost_point_pressure_update(
     }
 #pragma unroll
     for (int k = 0; k != CANONICAL_FILTER_ORDER; ++k) {
-        bd->filter_memory.array[k] = local_memory.array[k];
+        filter_memory->array[k] = local_memory.array[k];
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+
+#define FACE_COUNT (6)
+
+constant PortDirection FACE_PORTS[FACE_COUNT] = {
+        id_port_nx, id_port_px, id_port_ny, id_port_py, id_port_nz, id_port_pz};
+
+inline int face_index_from_port(PortDirection pd) {
+    switch (pd) {
+        case id_port_nx: return 0;
+        case id_port_px: return 1;
+        case id_port_ny: return 2;
+        case id_port_py: return 3;
+        case id_port_nz: return 4;
+        case id_port_pz: return 5;
+        default: return -1;
+    }
+}
+
+inline global memory_canonical* get_face_memory(
+        global memory_canonical* filter_memories, uint layout_index, int face) {
+    return filter_memories + layout_index * FACE_COUNT + face;
+}
+
+inline const global coefficients_canonical* get_face_coefficients(
+        const global coefficients_canonical* coeff_blocks,
+        const global uint* coeff_offsets,
+        uint layout_index,
+        int face) {
+    return coeff_blocks + coeff_offsets[layout_index] + face;
+}
+
+inline float get_filter_weighting_faces(
+        int dims,
+        const PortDirection* dirs,
+        uint layout_index,
+        const global uint* coeff_offsets,
+        const global coefficients_canonical* coeff_blocks,
+        global memory_canonical* filter_memories) {
+    float sum = 0.0f;
+    for (int i = 0; i != dims; ++i) {
+        const int face = face_index_from_port(dirs[i]);
+        if (face < 0) {
+            continue;
+        }
+        const global coefficients_canonical* boundary =
+                get_face_coefficients(
+                        coeff_blocks, coeff_offsets, layout_index, face);
+        const float b0 = (float)boundary->b[0];
+        if (fabs(b0) > 1.0e-12f) {
+            const global memory_canonical* mem =
+                    get_face_memory(filter_memories, layout_index, face);
+            const float filt_state = (float)mem->array[0];
+            sum += filt_state / b0;
+        }
+    }
+    return courant_sq * sum;
+}
+
+inline float get_coeff_weighting_faces(
+        int dims,
+        const PortDirection* dirs,
+        uint layout_index,
+        const global uint* coeff_offsets,
+        const global coefficients_canonical* coeff_blocks) {
+    float sum = 0.0f;
+    for (int i = 0; i != dims; ++i) {
+        const int face = face_index_from_port(dirs[i]);
+        if (face < 0) {
+            continue;
+        }
+        const global coefficients_canonical* boundary =
+                get_face_coefficients(
+                        coeff_blocks, coeff_offsets, layout_index, face);
+        const float a0 = (float)boundary->a[0];
+        const float b0 = (float)boundary->b[0];
+        if (fabs(b0) > 1.0e-12f) {
+            sum += a0 / b0;
+        }
+    }
+    return sum * courant;
+}
+
+#define PROCESS_BOUNDARY_FACES_TEMPLATE(dimensions)                                       \
+    void CAT(process_boundary_faces_, dimensions)(                                        \
+            CAT(InnerNodeDirections, dimensions) ind,                                     \
+            int trace_kind,                                                               \
+            float prev_pressure,                                                          \
+            float current_pressure,                                                       \
+            float next_pressure,                                                          \
+            uint layout_index,                                                            \
+            uint global_index,                                                            \
+            uint step_index,                                                              \
+            uint trace_target,                                                            \
+            uint trace_enabled,                                                           \
+            const global coefficients_canonical* coeff_blocks,                            \
+            const global uint* coeff_offsets,                                             \
+            global memory_canonical* filter_memories,                                     \
+            volatile global int* error_flag,                                              \
+            global int* debug_info,                                                       \
+            __global trace_record_t* trace_records,                                       \
+            __global uint* trace_head,                                                    \
+            const uint trace_capacity) {                                                  \
+        for (int face = 0; face != (dimensions); ++face) {                                \
+            const PortDirection pd = ind.array[face];                                     \
+            if (pd == (PortDirection)(-1)) {                                              \
+                continue;                                                                 \
+            }                                                                             \
+            const int face_index = face_index_from_port(pd);                              \
+            if (face_index < 0) {                                                         \
+                atomic_or(error_flag, id_suspicious_boundary_error);                      \
+                continue;                                                                 \
+            }                                                                             \
+            global memory_canonical* mem =                                                \
+                    get_face_memory(filter_memories, layout_index, face_index);           \
+            const global coefficients_canonical* boundary =                               \
+                    get_face_coefficients(                                                \
+                            coeff_blocks, coeff_offsets, layout_index, face_index);       \
+            const uint coeff_index =                                                      \
+                    coeff_offsets[layout_index] + (uint)face_index;                       \
+            const float fs0_in = (float)mem->array[0];                                    \
+            ghost_point_pressure_update(0x12345678u,                                      \
+                                        next_pressure,                                    \
+                                        prev_pressure,                                    \
+                                        0.0f,                                             \
+                                        mem,                                              \
+                                        boundary,                                         \
+                                        coeff_index,                                      \
+                                        error_flag,                                       \
+                                        debug_info,                                       \
+                                        global_index,                                     \
+                                        layout_index,                                     \
+                                        face,                                             \
+                                        0xA5A5A5A5u);                                     \
+            const float fs0_out = (float)mem->array[0];                                   \
+            if (trace_enabled && trace_target == global_index) {                          \
+                trace_write(trace_records,                                                \
+                            trace_head,                                                   \
+                            trace_capacity,                                               \
+                            trace_enabled,                                                \
+                            trace_kind,                                                   \
+                            step_index,                                                   \
+                            global_index,                                                 \
+                            (uint)face,                                                   \
+                            prev_pressure,                                                \
+                            current_pressure,                                             \
+                            next_pressure,                                                \
+                            fs0_in,                                                       \
+                            fs0_out,                                                      \
+                            0.0f,                                                         \
+                            boundary->a[0],                                               \
+                            boundary->b[0]);                                              \
+            }                                                                             \
+        }                                                                                 \
+    }
+
+PROCESS_BOUNDARY_FACES_TEMPLATE(1);
+PROCESS_BOUNDARY_FACES_TEMPLATE(2);
+PROCESS_BOUNDARY_FACES_TEMPLATE(3);
 
 #define TEMPLATE_SUM_SURROUNDING_PORTS(dimensions)                           \
     float CAT(get_summed_surrounding_, dimensions)(                          \
@@ -528,18 +668,14 @@ void ghost_point_pressure_update(
             const global float* current,                                     \
             int3 locator,                                                    \
             int3 dim,                                                        \
-            volatile global int* error_flag,                                 \
-            global int* debug_info,                                          \
-            uint global_index);                                              \
+            volatile global int* error_flag);                                \
     float CAT(get_summed_surrounding_, dimensions)(                          \
             const global condensed_node* nodes,                              \
             CAT(InnerNodeDirections, dimensions) pd,                         \
             const global float* current,                                     \
             int3 locator,                                                    \
             int3 dim,                                                        \
-            volatile global int* error_flag,                                 \
-            global int* debug_info,                                          \
-            uint global_index) {                                             \
+            volatile global int* error_flag) {                               \
         float ret = 0;                                                       \
         CAT(SurroundingPorts, dimensions)                                    \
         on_boundary = CAT(on_boundary_, dimensions)(pd);                     \
@@ -547,11 +683,6 @@ void ghost_point_pressure_update(
             uint index = neighbor_index(locator, dim, on_boundary.array[i]); \
             if (index == no_neighbor) {                                      \
                 atomic_or(error_flag, id_outside_mesh_error);                \
-                record_outside_mesh_error(debug_info,                        \
-                                          global_index,                      \
-                                          locator,                           \
-                                          on_boundary.array[i],              \
-                                          i);                                \
                 return 0;                                                    \
             }                                                                \
             int boundary_type = nodes[index].boundary_type;                  \
@@ -571,17 +702,13 @@ float get_summed_surrounding_3(const global condensed_node* nodes,
                                const global float* current,
                                int3 locator,
                                int3 dimensions,
-                               volatile global int* error_flag,
-                               global int* debug_info,
-                               uint global_index);
+                               volatile global int* error_flag);
 float get_summed_surrounding_3(const global condensed_node* nodes,
                                InnerNodeDirections3 i,
                                const global float* current,
                                int3 locator,
                                int3 dimensions,
-                               volatile global int* error_flag,
-                               global int* debug_info,
-                               uint global_index) {
+                               volatile global int* error_flag) {
     return 0;
 }
 
@@ -592,25 +719,16 @@ float get_inner_pressure(const global condensed_node* nodes,
                          int3 locator,
                          int3 dim,
                          PortDirection bt,
-                         volatile global int* error_flag,
-                         global int* debug_info,
-                         uint global_index);
+                         volatile global int* error_flag);
 float get_inner_pressure(const global condensed_node* nodes,
                          const global float* current,
                          int3 locator,
                          int3 dim,
                          PortDirection bt,
-                         volatile global int* error_flag,
-                         global int* debug_info,
-                         uint global_index) {
+                         volatile global int* error_flag) {
     uint neighbor = neighbor_index(locator, dim, bt);
     if (neighbor == no_neighbor) {
         atomic_or(error_flag, id_outside_mesh_error);
-        record_outside_mesh_error(debug_info,
-                                  global_index,
-                                  locator,
-                                  bt,
-                                  -1);
         return 0;
     }
     return current[neighbor];
@@ -623,18 +741,14 @@ float get_inner_pressure(const global condensed_node* nodes,
             int3 locator,                                                      \
             int3 dim,                                                          \
             CAT(InnerNodeDirections, dimensions) ind,                          \
-            volatile global int* error_flag,                                   \
-            global int* debug_info,                                            \
-            uint global_index);                                                \
+            volatile global int* error_flag);                                  \
     float CAT(get_current_surrounding_weighting_, dimensions)(                 \
             const global condensed_node* nodes,                                \
             const global float* current,                                       \
             int3 locator,                                                      \
             int3 dim,                                                          \
             CAT(InnerNodeDirections, dimensions) ind,                          \
-            volatile global int* error_flag,                                   \
-            global int* debug_info,                                            \
-            uint global_index) {                                               \
+            volatile global int* error_flag) {                                 \
         float sum = 0;                                                         \
         for (int i = 0; i != dimensions; ++i) {                                \
             sum += 2 * get_inner_pressure(nodes,                               \
@@ -642,20 +756,11 @@ float get_inner_pressure(const global condensed_node* nodes,
                                           locator,                             \
                                           dim,                                 \
                                           ind.array[i],                        \
-                                          error_flag,                          \
-                                          debug_info,                          \
-                                          global_index);                       \
+                                          error_flag);                         \
         }                                                                      \
         return courant_sq *                                                    \
                (sum + CAT(get_summed_surrounding_, dimensions)(                \
-                               nodes,                                         \
-                               ind,                                           \
-                               current,                                       \
-                               locator,                                       \
-                               dim,                                           \
-                               error_flag,                                    \
-                               debug_info,                                    \
-                               global_index));                                \
+                              nodes, ind, current, locator, dim, error_flag)); \
     }
 
 GET_CURRENT_SURROUNDING_WEIGHTING_TEMPLATE(1);
@@ -664,256 +769,165 @@ GET_CURRENT_SURROUNDING_WEIGHTING_TEMPLATE(3);
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#define GET_FILTER_WEIGHTING_TEMPLATE(dimensions)                         \
-    float CAT(get_filter_weighting_, dimensions)(                         \
-            global CAT(boundary_data_array_, dimensions) * bda,           \
-            const global coefficients_canonical* boundary_coefficients);  \
-    float CAT(get_filter_weighting_, dimensions)(                         \
-            global CAT(boundary_data_array_, dimensions) * bda,           \
-            const global coefficients_canonical* boundary_coefficients) { \
-        float sum = 0;                                                    \
-        for (int i = 0; i != dimensions; ++i) {                           \
-            const global boundary_data* bd_ptr = bda->array + i;          \
-            const filt_real filt_state = bd_ptr->filter_memory.array[0];  \
-            const filt_real b0 =                                          \
-                    boundary_coefficients[bd_ptr->coefficient_index].b[0];\
-            if (fabs((float)b0) > 1.0e-12f) {                             \
-                sum += filt_state / b0;                                   \
-            }                                                             \
-        }                                                                 \
-        return courant_sq * sum;                                          \
+
+inline float solve_boundary_pressure(
+        float current_surrounding_weighting,
+        float filter_weighting,
+        float coeff_weighting,
+        float prev_pressure,
+        volatile global int* error_flag,
+        global int* debug_info,
+        uint global_index,
+        uint layout_index,
+        int dims) {
+    const float prev_weighting = (coeff_weighting - 1.0f) * prev_pressure;
+    const float numerator =
+            current_surrounding_weighting + filter_weighting + prev_weighting;
+    float denom = 1.0f + coeff_weighting;
+    if (!isfinite(denom) || fabs(denom) < 1.0e-12f) {
+        atomic_or(error_flag, id_suspicious_boundary_error);
+        denom = denom >= 0 ? 1.0f : -1.0f;
     }
-
-GET_FILTER_WEIGHTING_TEMPLATE(1);
-GET_FILTER_WEIGHTING_TEMPLATE(2);
-GET_FILTER_WEIGHTING_TEMPLATE(3);
-
-////////////////////////////////////////////////////////////////////////////////
-
-#define GET_COEFF_WEIGHTING_TEMPLATE(dimensions)                             \
-    float CAT(get_coeff_weighting_, dimensions)(                             \
-            global CAT(boundary_data_array_, dimensions) * bda,              \
-            const global coefficients_canonical* boundary_coefficients);     \
-    float CAT(get_coeff_weighting_, dimensions)(                             \
-            global CAT(boundary_data_array_, dimensions) * bda,              \
-            const global coefficients_canonical* boundary_coefficients) {    \
-        float sum = 0;                                                       \
-        for (int i = 0; i != dimensions; ++i) {                              \
-            const global coefficients_canonical* boundary =                  \
-                    boundary_coefficients + bda->array[i].coefficient_index; \
-            const float a0 = (float)boundary->a[0];                          \
-            const float b0 = (float)boundary->b[0];                          \
-            if (fabs(b0) > 1.0e-12f) {                                       \
-                sum += a0 / b0;                                              \
-            }                                                                \
-        }                                                                    \
-        return sum * courant;                                                \
+    float ret = numerator / denom;
+    if (!isfinite(ret)) {
+        record_nan(debug_info,
+                   200 + dims,
+                   global_index,
+                   (int)layout_index,
+                   -1,
+                   0,
+                   filter_weighting,
+                   coeff_weighting,
+                   denom,
+                   numerator,
+                   denom,
+                   prev_pressure,
+                   ret);
+        atomic_or(error_flag, id_nan_error);
+        ret = 0.0f;
     }
+    return ret;
+}
 
-GET_COEFF_WEIGHTING_TEMPLATE(1);
-GET_COEFF_WEIGHTING_TEMPLATE(2);
-GET_COEFF_WEIGHTING_TEMPLATE(3);
+float boundary_1(const global float* current,
+                 float prev_pressure,
+                 condensed_node node,
+                 const global condensed_node* nodes,
+                 int3 locator,
+                 int3 dim,
+                 boundary_header header,
+                 uint layout_index,
+                 const global uint* coeff_offsets,
+                 const global coefficients_canonical* coeff_blocks,
+                 global memory_canonical* filter_memories,
+                 volatile global int* error_flag,
+                 global int* debug_info,
+                 uint global_index) {
+    (void)header;
+    InnerNodeDirections1 ind = get_inner_node_directions_1(node.boundary_type);
+    const float current_surrounding_weighting =
+            get_current_surrounding_weighting_1(
+                    nodes, current, locator, dim, ind, error_flag);
+    const float filter_weighting =
+            get_filter_weighting_faces(1,
+                                       ind.array,
+                                       layout_index,
+                                       coeff_offsets,
+                                       coeff_blocks,
+                                       filter_memories);
+    const float coeff_weighting =
+            get_coeff_weighting_faces(
+                    1, ind.array, layout_index, coeff_offsets, coeff_blocks);
+    return solve_boundary_pressure(current_surrounding_weighting,
+                                   filter_weighting,
+                                   coeff_weighting,
+                                   prev_pressure,
+                                   error_flag,
+                                   debug_info,
+                                   global_index,
+                                   layout_index,
+                                   1);
+}
 
-////////////////////////////////////////////////////////////////////////////////
+float boundary_2(const global float* current,
+                 float prev_pressure,
+                 condensed_node node,
+                 const global condensed_node* nodes,
+                 int3 locator,
+                 int3 dim,
+                 boundary_header header,
+                 uint layout_index,
+                 const global uint* coeff_offsets,
+                 const global coefficients_canonical* coeff_blocks,
+                 global memory_canonical* filter_memories,
+                 volatile global int* error_flag,
+                 global int* debug_info,
+                 uint global_index) {
+    (void)header;
+    InnerNodeDirections2 ind = get_inner_node_directions_2(node.boundary_type);
+    const float current_surrounding_weighting =
+            get_current_surrounding_weighting_2(
+                    nodes, current, locator, dim, ind, error_flag);
+    const float filter_weighting =
+            get_filter_weighting_faces(2,
+                                       ind.array,
+                                       layout_index,
+                                       coeff_offsets,
+                                       coeff_blocks,
+                                       filter_memories);
+    const float coeff_weighting =
+            get_coeff_weighting_faces(
+                    2, ind.array, layout_index, coeff_offsets, coeff_blocks);
+    return solve_boundary_pressure(current_surrounding_weighting,
+                                   filter_weighting,
+                                   coeff_weighting,
+                                   prev_pressure,
+                                   error_flag,
+                                   debug_info,
+                                   global_index,
+                                   layout_index,
+                                   2);
+}
 
-#define BOUNDARY_TEMPLATE(dimensions)                                          \
-    float CAT(boundary_, dimensions)(                                          \
-            const global float* current,                                       \
-            float prev_pressure,                                               \
-            condensed_node node,                                               \
-            const global condensed_node* nodes,                                \
-            int3 locator,                                                      \
-            int3 dim,                                                          \
-            global CAT(boundary_data_array_, dimensions) * bdat,               \
-            const global coefficients_canonical* boundary_coefficients,        \
-            volatile global int* error_flag,                                   \
-            global int* debug_info,                                            \
-            uint global_index);                                                \
-    float CAT(boundary_, dimensions)(                                          \
-            const global float* current,                                       \
-            float prev_pressure,                                               \
-            condensed_node node,                                               \
-            const global condensed_node* nodes,                                \
-            int3 locator,                                                      \
-            int3 dim,                                                          \
-            global CAT(boundary_data_array_, dimensions) * bdat,               \
-            const global coefficients_canonical* boundary_coefficients,        \
-            volatile global int* error_flag,                                   \
-            global int* debug_info,                                            \
-            uint global_index) {                                               \
-        CAT(InnerNodeDirections, dimensions)                                   \
-        ind = CAT(get_inner_node_directions_, dimensions)(node.boundary_type); \
-        float current_surrounding_weighting =                                  \
-                CAT(get_current_surrounding_weighting_, dimensions)(           \
-                        nodes,                                                \
-                        current,                                              \
-                        locator,                                              \
-                        dim,                                                  \
-                        ind,                                                  \
-                        error_flag,                                           \
-                        debug_info,                                           \
-                        global_index);                                        \
-        global CAT(boundary_data_array_, dimensions)* bda =                    \
-                bdat + node.boundary_index;                                    \
-        const float filter_weighting = CAT(get_filter_weighting_, dimensions)( \
-                bda, boundary_coefficients);                                   \
-        const float coeff_weighting = CAT(get_coeff_weighting_, dimensions)(   \
-                bda, boundary_coefficients);                                   \
-        const float prev_weighting = (coeff_weighting - 1) * prev_pressure;    \
-        const float numerator = current_surrounding_weighting +                \
-                                filter_weighting + prev_weighting;             \
-        float denom = 1 + coeff_weighting;                                     \
-        if (!isfinite(denom) || fabs(denom) < 1.0e-12f) {                      \
-            atomic_or(error_flag, id_suspicious_boundary_error);               \
-            denom = denom >= 0 ? 1.0f : -1.0f;                                 \
-        }                                                                      \
-        float ret = numerator / denom;                                         \
-        if (!isfinite(ret)) {                                                  \
-            record_nan(debug_info,                                            \
-                       200 + dimensions,                                      \
-                       global_index,                                          \
-                       node.boundary_index,                                   \
-                       -1,                                                    \
-                       0,                                                     \
-                       filter_weighting,                                      \
-                       coeff_weighting,                                       \
-                       denom,                                                 \
-                       numerator,                                             \
-                       denom,                                                 \
-                       prev_pressure,                                         \
-                       ret);                                                  \
-            atomic_or(error_flag, id_nan_error);                               \
-            ret = 0.0f;                                                        \
-        }                                                                      \
-        return ret;                                                            \
-    }
-
-BOUNDARY_TEMPLATE(1);
-BOUNDARY_TEMPLATE(2);
-BOUNDARY_TEMPLATE(3);
-
-////////////////////////////////////////////////////////////////////////////////
-
-#define UPDATE_BOUNDARY_KERNEL(dims_count)                                             \
-    kernel void CAT(update_boundary_, dims_count)(                                     \
-            const global float* previous_history,                                      \
-            const global float* current,                                               \
-            global float* next,                                                        \
-            const global condensed_node* nodes,                                        \
-            int3 grid_dimensions,                                                      \
-            const global uint* boundary_nodes,                                         \
-            global CAT(boundary_data_array_, dims_count) * boundary_storage,          \
-            const global coefficients_canonical* boundary_coefficients,                \
-            volatile global int* error_flag,                                           \
-            global int* debug_info,                                                    \
-            const uint trace_target,                                                   \
-            __global trace_record_t* trace_records,                                    \
-            __global uint* trace_head,                                                 \
-            const uint trace_capacity,                                                 \
-            const uint trace_enabled,                                                  \
-            const uint step_index) {                                                   \
-        const uint work_index = (uint)get_global_id(0);                                \
-        const uint global_index = boundary_nodes[work_index];                          \
-        const condensed_node node = nodes[global_index];                               \
-        const uint boundary_index = node.boundary_index;                               \
-        if (boundary_index != work_index) {                                            \
-            atomic_or(error_flag, id_outside_range_error);                             \
-            if (debug_info != 0) {                                                     \
-                debug_info[0] = id_outside_range_error;                                 \
-                debug_info[1] = (int)boundary_index;                                    \
-                debug_info[2] = (int)work_index;                                        \
-            }                                                                          \
-            return;                                                                    \
-        }                                                                              \
-        global CAT(boundary_data_array_, dims_count)* bdat =                           \
-                boundary_storage + boundary_index;                                     \
-        const float next_pressure = next[global_index];                                \
-        const float prev_pressure = previous_history[global_index];                    \
-        const float current_pressure = current[global_index];                          \
-        const int3 locator = to_locator(global_index, grid_dimensions);                \
-        CAT(InnerNodeDirections, dims_count) ind =                                     \
-                CAT(get_inner_node_directions_, dims_count)(node.boundary_type);       \
-        const int faces = (dims_count);                                                \
-        for (int face = 0; face != faces; ++face) {                                    \
-            const PortDirection pd = ind.array[face];                                  \
-            if (pd == (PortDirection)(-1)) {                                           \
-                continue;                                                              \
-            }                                                                          \
-            const uint boundary_bit = boundary_bit_from_port(pd);                      \
-            const int local_idx =                                                      \
-                    boundary_local_index(node.boundary_type, boundary_bit);            \
-            if (local_idx < 0 || local_idx >= faces) {                                 \
-                atomic_or(error_flag, id_suspicious_boundary_error);                   \
-                continue;                                                              \
-            }                                                                          \
-            global boundary_data* bd = bdat->array + local_idx;                        \
-            const global coefficients_canonical* boundary =                            \
-                    boundary_coefficients + bd->coefficient_index;                     \
-            const float fs0_in = bd->filter_memory.array[0];                           \
-            const float inner_pressure =                                               \
-                    get_inner_pressure(nodes,                                          \
-                                       current,                                        \
-                                       locator,                                        \
-                                       grid_dimensions,                                \
-                                       pd,                                             \
-                                       error_flag,                                     \
-                                       debug_info,                                     \
-                                       global_index);                                  \
-            if (trace_enabled && trace_target == global_index) {                       \
-                trace_write(trace_records,                                             \
-                            trace_head,                                               \
-                            trace_capacity,                                           \
-                            trace_enabled,                                            \
-                            CAT(TRACE_KIND_BOUNDARY_, dims_count),                    \
-                            step_index,                                               \
-                            global_index,                                             \
-                            (uint)local_idx,                                          \
-                            prev_pressure,                                            \
-                            current_pressure,                                         \
-                            next_pressure,                                            \
-                            fs0_in,                                                   \
-                            fs0_in,                                                   \
-                            0.0f,                                                     \
-                            boundary->a[0],                                           \
-                            boundary->b[0]);                                          \
-            }                                                                          \
-            ghost_point_pressure_update(0x12345678u,                                   \
-                                        next_pressure,                                \
-                                        prev_pressure,                                \
-                                        inner_pressure,                               \
-                                        bd,                                           \
-                                        boundary,                                     \
-                                        error_flag,                                   \
-                                        debug_info,                                   \
-                                        global_index,                                 \
-                                        boundary_index,                               \
-                                        local_idx,                                    \
-                                        0xA5A5A5A5u);                                 \
-            if (trace_enabled && trace_target == global_index) {                       \
-                const float fs0_out = bd->filter_memory.array[0];                     \
-                trace_write(trace_records,                                             \
-                            trace_head,                                               \
-                            trace_capacity,                                           \
-                            trace_enabled,                                            \
-                            CAT(TRACE_KIND_BOUNDARY_, dims_count),                    \
-                            step_index,                                               \
-                            global_index,                                             \
-                            (uint)local_idx,                                          \
-                            prev_pressure,                                            \
-                            current_pressure,                                         \
-                            next_pressure,                                            \
-                            fs0_in,                                                   \
-                            fs0_out,                                                  \
-                            0.0f,                                                     \
-                            boundary->a[0],                                           \
-                            boundary->b[0]);                                          \
-            }                                                                          \
-        }                                                                              \
-    }
-
-UPDATE_BOUNDARY_KERNEL(1);
-UPDATE_BOUNDARY_KERNEL(2);
-UPDATE_BOUNDARY_KERNEL(3);
+float boundary_3(const global float* current,
+                 float prev_pressure,
+                 condensed_node node,
+                 const global condensed_node* nodes,
+                 int3 locator,
+                 int3 dim,
+                 boundary_header header,
+                 uint layout_index,
+                 const global uint* coeff_offsets,
+                 const global coefficients_canonical* coeff_blocks,
+                 global memory_canonical* filter_memories,
+                 volatile global int* error_flag,
+                 global int* debug_info,
+                 uint global_index) {
+    (void)header;
+    InnerNodeDirections3 ind = get_inner_node_directions_3(node.boundary_type);
+    const float current_surrounding_weighting =
+            get_current_surrounding_weighting_3(
+                    nodes, current, locator, dim, ind, error_flag);
+    const float filter_weighting =
+            get_filter_weighting_faces(3,
+                                       ind.array,
+                                       layout_index,
+                                       coeff_offsets,
+                                       coeff_blocks,
+                                       filter_memories);
+    const float coeff_weighting =
+            get_coeff_weighting_faces(
+                    3, ind.array, layout_index, coeff_offsets, coeff_blocks);
+    return solve_boundary_pressure(current_surrounding_weighting,
+                                   filter_weighting,
+                                   coeff_weighting,
+                                   prev_pressure,
+                                   error_flag,
+                                   debug_info,
+                                   global_index,
+                                   layout_index,
+                                   3);
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -947,10 +961,11 @@ float next_waveguide_pressure(
         const global float* current,
         int3 dimensions,
         int3 locator,
-        global boundary_data_array_1* boundary_data_1,
-        global boundary_data_array_2* boundary_data_2,
-        global boundary_data_array_3* boundary_data_3,
-        const global coefficients_canonical* boundary_coefficients,
+        const global boundary_header* boundary_headers,
+        const global uint* coeff_offsets,
+        const global coefficients_canonical* coeff_blocks,
+        global memory_canonical* filter_memories,
+        const global uint* boundary_lookup,
         volatile global int* error_flag,
         global int* debug_info,
         uint global_index);
@@ -961,68 +976,92 @@ float next_waveguide_pressure(
         const global float* current,
         int3 dimensions,
         int3 locator,
-        global boundary_data_array_1* boundary_data_1,
-        global boundary_data_array_2* boundary_data_2,
-        global boundary_data_array_3* boundary_data_3,
-        const global coefficients_canonical* boundary_coefficients,
+        const global boundary_header* boundary_headers,
+        const global uint* coeff_offsets,
+        const global coefficients_canonical* coeff_blocks,
+        global memory_canonical* filter_memories,
+        const global uint* boundary_lookup,
         volatile global int* error_flag,
         global int* debug_info,
         uint global_index) {
-    //  find the next pressure at this node, assign it to next_pressure
-    switch (popcount(node.boundary_type)) {
-        //  this is inside or outside, not a boundary
+    const int boundary_bits = node.boundary_type &
+            (id_nx | id_px | id_ny | id_py | id_nz | id_pz);
+    const int boundary_faces = popcount(boundary_bits);
+
+    if (boundary_faces == 0 || (node.boundary_type & id_inside) ||
+        (node.boundary_type & id_reentrant)) {
+        return normal_waveguide_update(
+                prev_pressure, current, dimensions, locator);
+    }
+
+#if ENABLE_BOUNDARIES
+    const uint layout_index = boundary_lookup[global_index];
+    if (layout_index == 0xFFFFFFFFu) {
+        atomic_or(error_flag, id_suspicious_boundary_error);
+        return normal_waveguide_update(
+                prev_pressure, current, dimensions, locator);
+    }
+
+    const boundary_header header = boundary_headers[layout_index];
+    const uint expected_guard = global_index ^ 0xA5A5A5A5u;
+    if (header.guard != expected_guard) {
+        atomic_or(error_flag, id_suspicious_boundary_error);
+        return normal_waveguide_update(
+                prev_pressure, current, dimensions, locator);
+    }
+
+    switch (boundary_faces) {
         case 1:
-            if (node.boundary_type & id_inside ||
-                node.boundary_type & id_reentrant) {
-                return normal_waveguide_update(
-                        prev_pressure, current, dimensions, locator);
-            } else {
-#if ENABLE_BOUNDARIES
-                return boundary_1(current,
-                                  prev_pressure,
-                                  node,
-                                  nodes,
-                                  locator,
-                                  dimensions,
-                                  boundary_data_1,
-                                  boundary_coefficients,
-                                  error_flag,
-                                  debug_info,
-                                  global_index);
-#endif
-            }
-        //  this is an edge where two boundaries meet
+            return boundary_1(current,
+                              prev_pressure,
+                              node,
+                              nodes,
+                              locator,
+                              dimensions,
+                              header,
+                              layout_index,
+                              coeff_offsets,
+                              coeff_blocks,
+                              filter_memories,
+                              error_flag,
+                              debug_info,
+                              global_index);
         case 2:
-#if ENABLE_BOUNDARIES
             return boundary_2(current,
                               prev_pressure,
                               node,
                               nodes,
                               locator,
                               dimensions,
-                              boundary_data_2,
-                              boundary_coefficients,
+                              header,
+                              layout_index,
+                              coeff_offsets,
+                              coeff_blocks,
+                              filter_memories,
                               error_flag,
                               debug_info,
                               global_index);
-#endif
-        //  this is a corner where three boundaries meet
         case 3:
-#if ENABLE_BOUNDARIES
             return boundary_3(current,
                               prev_pressure,
                               node,
                               nodes,
                               locator,
                               dimensions,
-                              boundary_data_3,
-                              boundary_coefficients,
+                              header,
+                              layout_index,
+                              coeff_offsets,
+                              coeff_blocks,
+                              filter_memories,
                               error_flag,
                               debug_info,
                               global_index);
-#endif
-        default: return 0;
+        default: break;
     }
+#endif
+
+    return normal_waveguide_update(
+            prev_pressure, current, dimensions, locator);
 }
 
 kernel void zero_buffer(global float* buffer) {
@@ -1035,10 +1074,13 @@ kernel void condensed_waveguide(
         const global float* current,
         const global condensed_node* nodes,
         int3 dimensions,
-        global boundary_data_array_1* boundary_data_1,
-        global boundary_data_array_2* boundary_data_2,
-        global boundary_data_array_3* boundary_data_3,
-        const global coefficients_canonical* boundary_coefficients,
+        const global boundary_header* boundary_headers,
+        const global float* boundary_sdf_distance,
+        const global float3* boundary_sdf_normal,
+        const global uint* coeff_offsets,
+        const global coefficients_canonical* coeff_blocks,
+        global memory_canonical* filter_memories,
+        const global uint* boundary_lookup,
         volatile global int* error_flag,
         global int* debug_info,
         const uint num_prev,
@@ -1048,6 +1090,8 @@ kernel void condensed_waveguide(
         const uint trace_capacity,
         const uint trace_enabled,
         const uint step_index) {
+    (void)boundary_sdf_distance;
+    (void)boundary_sdf_normal;
     const size_t index = get_global_id(0);
 
     if (index >= num_prev) {
@@ -1071,10 +1115,11 @@ kernel void condensed_waveguide(
                                                         current,
                                                         dimensions,
                                                         locator,
-                                                        boundary_data_1,
-                                                        boundary_data_2,
-                                                        boundary_data_3,
-                                                        boundary_coefficients,
+                                                        boundary_headers,
+                                                        coeff_offsets,
+                                                        coeff_blocks,
+                                                        filter_memories,
+                                                        boundary_lookup,
                                                         error_flag,
                                                         debug_info,
                                                         (uint)index);
@@ -1111,6 +1156,121 @@ kernel void condensed_waveguide(
     }
 
     previous[index] = next_pressure;
+}
+
+kernel void update_boundaries(
+        const global float* previous_history,
+        const global float* current,
+        global float* next,
+        const global condensed_node* nodes,
+        int3 grid_dimensions,
+        const global uint* boundary_node_indices,
+        const global boundary_header* boundary_headers,
+        const global uint* coeff_offsets,
+        const global coefficients_canonical* coeff_blocks,
+        global memory_canonical* filter_memories,
+        const global uint* boundary_lookup,
+        volatile global int* error_flag,
+        global int* debug_info,
+        const uint trace_target,
+        __global trace_record_t* trace_records,
+        __global uint* trace_head,
+        const uint trace_capacity,
+        const uint trace_enabled,
+        const uint step_index,
+        const uint boundary_count) {
+    const uint layout_index = (uint)get_global_id(0);
+    if (layout_index >= boundary_count) {
+        return;
+    }
+
+    const uint global_index = boundary_node_indices[layout_index];
+    if (boundary_lookup[global_index] != layout_index) {
+        atomic_or(error_flag, id_suspicious_boundary_error);
+        return;
+    }
+
+    const boundary_header header = boundary_headers[layout_index];
+    const uint expected_guard = global_index ^ 0xA5A5A5A5u;
+    if (header.guard != expected_guard) {
+        atomic_or(error_flag, id_suspicious_boundary_error);
+        return;
+    }
+
+    const condensed_node node = nodes[global_index];
+    const int boundary_bits = node.boundary_type &
+            (id_nx | id_px | id_ny | id_py | id_nz | id_pz);
+    const int boundary_faces = popcount(boundary_bits);
+    const float prev_pressure = previous_history[global_index];
+    const float current_pressure = current[global_index];
+    const float next_pressure = next[global_index];
+    const int trace_kind = boundary_faces == 1
+            ? TRACE_KIND_BOUNDARY_1
+            : boundary_faces == 2 ? TRACE_KIND_BOUNDARY_2
+                                  : TRACE_KIND_BOUNDARY_3;
+
+    switch (boundary_faces) {
+        case 1:
+            process_boundary_faces_1(get_inner_node_directions_1(node.boundary_type),
+                                     trace_kind,
+                                     prev_pressure,
+                                     current_pressure,
+                                     next_pressure,
+                                     layout_index,
+                                     global_index,
+                                     step_index,
+                                     trace_target,
+                                     trace_enabled,
+                                     coeff_blocks,
+                                     coeff_offsets,
+                                     filter_memories,
+                                     error_flag,
+                                     debug_info,
+                                     trace_records,
+                                     trace_head,
+                                     trace_capacity);
+            break;
+        case 2:
+            process_boundary_faces_2(get_inner_node_directions_2(node.boundary_type),
+                                     trace_kind,
+                                     prev_pressure,
+                                     current_pressure,
+                                     next_pressure,
+                                     layout_index,
+                                     global_index,
+                                     step_index,
+                                     trace_target,
+                                     trace_enabled,
+                                     coeff_blocks,
+                                     coeff_offsets,
+                                     filter_memories,
+                                     error_flag,
+                                     debug_info,
+                                     trace_records,
+                                     trace_head,
+                                     trace_capacity);
+            break;
+        default:
+            process_boundary_faces_3(get_inner_node_directions_3(node.boundary_type),
+                                     trace_kind,
+                                     prev_pressure,
+                                     current_pressure,
+                                     next_pressure,
+                                     layout_index,
+                                     global_index,
+                                     step_index,
+                                     trace_target,
+                                     trace_enabled,
+                                     coeff_blocks,
+                                     coeff_offsets,
+                                     filter_memories,
+                                     error_flag,
+                                     debug_info,
+                                     trace_records,
+                                     trace_head,
+                                     trace_capacity);
+            break;
+    }
 }
 
 typedef struct {
@@ -1170,6 +1330,7 @@ program::program(const core::compute_context& cc)
                           core::cl_representation_v<mesh_descriptor>,
                           core::cl_representation_v<error_code>,
                           core::cl_representation_v<condensed_node>,
+                          core::cl_representation_v<boundary_header>,
                           core::cl_representation_v<boundary_data>,
                           core::cl_representation_v<boundary_data_array_1>,
                           core::cl_representation_v<boundary_data_array_2>,

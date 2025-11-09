@@ -19,6 +19,7 @@
 
 #include "waveguide/mesh.h"
 #include "waveguide/setup.h"
+#include "waveguide/precomputed_inputs.h"
 #include "waveguide/simulation_parameters.h"
 
 #include <algorithm>
@@ -213,6 +214,16 @@ regression_result run_regression(const regression_options& opts) {
             wayverb::waveguide::single_band_parameters{opts.waveguide_cutoff,
                                                        opts.waveguide_usable};
 
+    auto precomputed_inputs = wayverb::waveguide::load_precomputed_inputs(
+            opts.scene_path);
+    if (precomputed_inputs) {
+        wayverb::core::scene_data_loader loader{opts.scene_path};
+        if (const auto strings_scene = loader.get_scene_data()) {
+            precomputed_inputs->surface_names =
+                    strings_scene->get_surfaces();
+        }
+    }
+
     wayverb::combined::engine engine{
             wayverb::core::compute_context{},
             scene_data,
@@ -222,7 +233,8 @@ regression_result run_regression(const regression_options& opts) {
             wayverb::raytracer::simulation_parameters{
                     opts.rays,
                     static_cast<size_t>(opts.image_sources)},
-            wayverb::combined::make_waveguide_ptr(waveguide_params)};
+            wayverb::combined::make_waveguide_ptr(waveguide_params),
+            std::move(precomputed_inputs)};
 
     validate_scene(engine, source, receiver);
     log_mesh_summary(engine);
