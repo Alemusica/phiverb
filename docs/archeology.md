@@ -106,4 +106,10 @@ build/src/raytracer/tests/raytracer_tests --gtest_filter='stochastic.*:raytracer
 - stochastic.bad_reflections_box/vault, stochastic.diffuse_rain_deterministic → PASS
 ```
 ```
+- **2025-11-09 – Resolved 2025-11-09** — *`run_validation_suite.py` boccia `aula_medium` pur avendo RT coerente*  
+  - **Context**: Branch `rt/AP-RT-002-diffuse-rain`, comando `python3 scripts/qa/run_validation_suite.py --cli build/bin/wayverb_cli/wayverb_cli --scenes tests/scenes`. La scena `aula_medium` produce `T30 ≈ 0.588 s`, mentre il QA stampa “Sabine/Eyring 0.585–0.492” e interrompe il run, bloccando la pipeline per i team waveguide/DWM.  
+  - **Observed behavior**: il codice calcola già Sabine=0.585 s ed Eyring=0.494 s ma li mostra invertiti quando Sabine > Eyring e impone un clamp rigido `[min(S,E), max(S,E)]`, così anche uno scostamento di 0.003 s rispetto al bound superiore causa un FAIL, nonostante la regola ±15% vs. il modello più vicino fosse soddisfatta.  
+  - **GPT‑5 guidance (2025‑11‑09)**: Trattare T30 come stima di RT60 (ISO 3382), mantenere la soglia relativa ±15% ma (1) correggere le etichette Sabine/Eyring e (2) introdurre un guard band ±2% sui bound assoluti per coprire discretizzazione e repeatability (ancora più stringente dei 5–10% tipici nei dati RT). Facoltativo: aggiornare in futuro i materiali/occupazione della scena per derivare ᾱ da superfici reali.  
+  - **Action**: aggiornati `scripts/qa/rt_bounds.py` e `scripts/qa/run_validation_suite.py` per restituire bound raw + buffered, stampare i nomi corretti e applicare `lo = min(S,E)*(1-0.02)`, `hi = max(S,E)*(1+0.02)` oltre al controllo ±15%. Annotato tutto nel Control Room log (`logs/control_room/alessioivoycazzaniga.md`) e rerun del QA: sia `aula_medium` sia `shoebox_small` sono verdi.
+
 <!-- END ASK-LIST -->

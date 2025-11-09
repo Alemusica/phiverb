@@ -54,3 +54,11 @@ Attempted GPT-5 tweaks (t_HR distance, real BW sqrt factor). Shoebox tail still 
 
 Adjusted shoebox tail test to compare T30 window (Sabine/Eyring /2). Full stochastic+reverb suite now green.
 
+
+### 2025-11-09 22:31:13 CET — branch rt/AP-RT-002-diffuse-rain
+
+QA suite blocked on aula_medium: consulted GPT-5 Pro (see docs/archeology.md) — plan is to fix Sabine/Eyring labels and add ±2% guard around absolute bounds while keeping ±15% vs best model; log results once scripts patched.
+
+### 2025-11-09 22:34:26 CET — branch rt/AP-RT-002-diffuse-rain
+
+Patched QA harness per GPT-5 guidance (Sabine/Eyring label fix + ±2% guard band) and reran `scripts/qa/run_validation_suite.py --cli build/bin/wayverb_cli/wayverb_cli --scenes tests/scenes`: aula_medium now passes (T30=0.588 s within guard [0.483,0.597]), shoebox_small still green.

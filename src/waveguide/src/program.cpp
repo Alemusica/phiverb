@@ -856,7 +856,9 @@ BOUNDARY_TEMPLATE(3);
                                        locator,                                        \
                                        grid_dimensions,                                \
                                        pd,                                             \
-                                       error_flag);                                    \
+                                       error_flag,                                     \
+                                       debug_info,                                     \
+                                       global_index);                                  \
             if (trace_enabled && trace_target == global_index) {                       \
                 trace_write(trace_records,                                             \
                             trace_head,                                               \
