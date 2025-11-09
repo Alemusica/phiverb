@@ -13,12 +13,19 @@ def norris_eyring(volume, surface, alpha_bar, m_air):
     denom = (-surface * np.log(1.0 - alpha_bar) + 4.0 * m_air * volume)
     return 0.161 * volume / max(denom, 1e-9)
 
-def within_bounds(T, volume, surface, alpha_bar, m_air=0.0, tol=0.15):
+def within_bounds(T,
+                  volume,
+                  surface,
+                  alpha_bar,
+                  m_air=0.0,
+                  tol=0.15,
+                  abs_slack=0.005):
     Ts = sabine(volume, surface, alpha_bar)
     Te = eyring(volume, surface, alpha_bar)
     Tn = norris_eyring(volume, surface, alpha_bar, m_air) if m_air > 0 else Te
     lo, hi = (min(Ts, Te), max(Ts, Te))
-    cond_bounds = lo <= T <= hi
+    slack = max(abs_slack, 0.0)
+    cond_bounds = (lo - slack) <= T <= (hi + slack)
     best = min([Ts, Tn], key=lambda ref: abs(ref - T))
     cond_tol = abs(T - best) / best <= tol
     return cond_bounds, cond_tol, (Ts, Te, Tn, best)

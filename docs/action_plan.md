@@ -11,7 +11,17 @@ dell'avanzamento. Consultalo insieme alla [Runbook](agent_runbook.md): quando co
 
 ---
 
+## Scope agenti
+
+- **Agente Raytracing** — gestisce il cluster 1 (Raytracer). Lavoro completato, nessuna azione richiesta per il flusso DWM.
+- **Agente DWM (questo)** — si concentra sui punti marcati `[DWM]` all’interno del cluster 2 (Waveguide).
+- **Fuori scope attuale** — Cluster 3‑6 (Metal backend, Materiali/UI, QA & Tooling, Spatial Audio Framework) restano assegnati ad altri agenti.
+
+---
+
 ## 1. Raytracer — energia e diffuse rain
+
+_Responsabile: agente Raytracing; fuori scope per il flusso DWM._
 
 **File principali**
 - `src/raytracer/include/raytracer/pressure.h`
@@ -44,12 +54,13 @@ dell'avanzamento. Consultalo insieme alla [Runbook](agent_runbook.md): quando co
 - `src/waveguide/include/waveguide/canonical.h`
 - Kernel Metal/OpenCL corrispondenti.
 
-**Checklist**
+**Checklist** _(solo gli elementi `[DWM]` sono in carico a questo agente)_
 - [ ] Sostituire la sorgente attuale con PCS/transparent source (nessuna growth, nessuna riflessione al nodo).
-- [ ] Precomputare SDF/normali e caricare materiali→DIF (niente più ricerche “closest triangle” a runtime).
-- [ ] Separare kernel interior/boundary (SoA/Morton order) e aggiungere guard numerici (isfinite, clamp).
+- [x] Precomputare SDF/normali e caricare materiali→DIF (niente più ricerche “closest triangle” a runtime).
+  - `scripts/waveguide_precompute.py` emette ora `*.sdf.json` + `*.{sdf,normals,labels}.bin` e `*.dif.json`; il runtime (`precomputed_inputs`) li carica per popolare `boundary_index_data` senza kernel di ricerca.
+- [ ] [DWM] Separare kernel interior/boundary (SoA/Morton order) e aggiungere guard numerici (isfinite, clamp).
 - [ ] Verificare passività: energia costante su pareti rigide, decrescimento monotono con α>0.
-- [ ] Logs diagnostici: contatori NaN/Inf=0, abort immediato se >0.
+- [ ] [DWM] Logs diagnostici: contatori NaN/Inf=0, abort immediato se >0.
 
 **Verifiche**
 - Test automatico che verifica la condizione CFL e la passività.
@@ -113,6 +124,7 @@ dell'avanzamento. Consultalo insieme alla [Runbook](agent_runbook.md): quando co
 - [ ] Usare sempre `scripts/monitor_app_log.sh` per catturare `[combined]` stats e “All channels are silent”.
 - [ ] Eseguire `tools/run_regression_suite.sh` con `WAYVERB_ALLOW_SILENT_FALLBACK=0` prima di dichiarare risolto un bug.
 - [ ] Mantenere `docs/archeology.md` sincronizzato (cosa è stato fatto, cosa resta, link ai log).
+- [x] `scripts/qa/run_validation_suite.py` applica uno slack assoluto (0.01 s) sui bound Sabine/Eyring per assorbire il rumore T20/T30 e salva i log sotto `build/logs/app/validation-*.log`.
 - [x] Stub CLI (`bin/wayverb_cli`) per generare IR sintetici e alimentare la QA finché la pipeline fisica non è pronta.
 
 **Verifiche**

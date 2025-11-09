@@ -26,10 +26,13 @@ public:
                             cl::Buffer,  /// current
                             cl::Buffer,  /// nodes
                             cl_int3,     /// dimensions
-                            cl::Buffer,  /// boundary_data_1
-                            cl::Buffer,  /// boundary_data_2
-                            cl::Buffer,  /// boundary_data_3
-                            cl::Buffer,  /// boundary_coefficients
+                            cl::Buffer,  /// boundary_headers
+                            cl::Buffer,  /// boundary_sdf_distance
+                            cl::Buffer,  /// boundary_sdf_normal
+                            cl::Buffer,  /// coeff_offsets
+                            cl::Buffer,  /// coeff_blocks
+                            cl::Buffer,  /// filter_memories
+                            cl::Buffer,  /// boundary_lookup
                             cl::Buffer,  /// error_flag
                             cl::Buffer,  /// debug_info
                             cl_uint,     /// num_prev
@@ -67,7 +70,7 @@ public:
                 .get_kernel<cl::Buffer, cl_uint, cl::Buffer>("probe_previous");
     }
 
-    auto get_update_boundary_1_kernel() const {
+    auto get_update_boundary_kernel() const {
         return program_wrapper_
                 .get_kernel<cl::Buffer,
                             cl::Buffer,
@@ -79,23 +82,6 @@ public:
                             cl::Buffer,
                             cl::Buffer,
                             cl::Buffer,
-                            cl_uint,
-                            cl::Buffer,
-                            cl::Buffer,
-                            cl_uint,
-                            cl_uint,
-                            cl_uint>("update_boundary_1");
-    }
-
-    auto get_update_boundary_2_kernel() const {
-        return program_wrapper_
-                .get_kernel<cl::Buffer,
-                            cl::Buffer,
-                            cl::Buffer,
-                            cl::Buffer,
-                            cl_int3,
-                            cl::Buffer,
-                            cl::Buffer,
                             cl::Buffer,
                             cl::Buffer,
                             cl::Buffer,
@@ -104,27 +90,8 @@ public:
                             cl::Buffer,
                             cl_uint,
                             cl_uint,
-                            cl_uint>("update_boundary_2");
-    }
-
-    auto get_update_boundary_3_kernel() const {
-        return program_wrapper_
-                .get_kernel<cl::Buffer,
-                            cl::Buffer,
-                            cl::Buffer,
-                            cl::Buffer,
-                            cl_int3,
-                            cl::Buffer,
-                            cl::Buffer,
-                            cl::Buffer,
-                            cl::Buffer,
-                            cl::Buffer,
                             cl_uint,
-                            cl::Buffer,
-                            cl::Buffer,
-                            cl_uint,
-                            cl_uint,
-                            cl_uint>("update_boundary_3");
+                            cl_uint>("update_boundaries");
     }
 
     template <cl_program_info T>

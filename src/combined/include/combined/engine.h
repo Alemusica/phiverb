@@ -29,6 +29,7 @@ struct simulation_parameters;
 }  // namespace raytracer
 namespace waveguide {
 struct voxels_and_mesh;
+struct precomputed_inputs;
 }  // namespace waveguide
 namespace combined {
 class waveguide_base;
@@ -96,7 +97,9 @@ public:
            const glm::vec3& receiver,
            const core::environment& environment,
            const raytracer::simulation_parameters& raytracer,
-           std::unique_ptr<waveguide_base> waveguide);
+           std::unique_ptr<waveguide_base> waveguide,
+           std::shared_ptr<waveguide::precomputed_inputs> precomputed_inputs =
+                   {});
 
     ~engine() noexcept;
 

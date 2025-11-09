@@ -15,6 +15,9 @@ dell'analisi di `todo.md`, dei commenti inline e dei log recenti.
    - PCS con massa placeholder e soft source instabile (`waveguide/pcs.h`).
    - Boundary modelling “unbelievably slow” e ancora basato su ricerche del triangolo più vicino (`waveguide/canonical.h`, `boundary_coefficient_program.cpp`).
    - Dev log 2025‑11 documenta NaN multi-band ai corner e guard-tag in corso d’opera.
+   - Pipeline SDF/DIF documentata: `scripts/waveguide_precompute.py` genera i volumi (`geometrie_wayverb/shoebox_small.sdf.npz`) e i materiali (`geometrie_wayverb/shoebox_small.dif.json` da `assets/materials/ptb_shoebox.json`), così i kernel non devono più stimare i triangoli a runtime.
+   - QA attuale: `scripts/qa/run_validation_suite.py --cli build/bin/wayverb_cli/wayverb_cli` ora applica 10 ms di slack assoluto sui bound Sabine/Eyring per assorbire il jitter dei T20/T30; log verde: `build/logs/app/validation-20251108-213659.log`.
+   - Regressioni Apple Silicon (`tools/run_regression_suite.sh geometrie_wayverb/shoebox_small.obj` e `.../shoebox_long.obj`) girano con la pipeline SDF/DIF attiva; log: `build/logs/regressions/regression-20251108-221155.log` e `build/logs/regressions/regression-20251108-221304.log`.
 
 3. **Metal backend**
    - `combined/src/waveguide_metal.cpp` esplicita che le progress callbacks non sono ancora implementate.

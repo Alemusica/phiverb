@@ -4,13 +4,27 @@ set -euo pipefail
 # Runs bin/apple_silicon_regression over a set of scenes with fallback disabled.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REG_BIN="$ROOT_DIR/bin/apple_silicon_regression"
+CANDIDATES=()
+BUILD_DIR="${WAYVERB_BUILD_DIR:-$ROOT_DIR/build}"
+CANDIDATES+=("$ROOT_DIR/bin/apple_silicon_regression")
+CANDIDATES+=("$ROOT_DIR/bin/apple_silicon_regression/apple_silicon_regression")
+CANDIDATES+=("$BUILD_DIR/bin/apple_silicon_regression")
+CANDIDATES+=("$BUILD_DIR/bin/apple_silicon_regression/apple_silicon_regression")
+
+REG_BIN=""
+for candidate in "${CANDIDATES[@]}"; do
+  if [[ -x "$candidate" && ! -d "$candidate" ]]; then
+    REG_BIN="$candidate"
+    break
+  fi
+done
+
 SCENE_DIR="$ROOT_DIR/geometrie_wayverb"
-LOG_DIR="$ROOT_DIR/build/logs/regressions"
+LOG_DIR="$BUILD_DIR/logs/regressions"
 mkdir -p "$LOG_DIR"
 
-if [[ ! -x "$REG_BIN" ]]; then
-  echo "Regression binary not found at $REG_BIN. Build it first." >&2
+if [[ -z "$REG_BIN" ]]; then
+  echo "Regression binary not found. Built artifacts expected under bin/apple_silicon_regression or $BUILD_DIR/bin/apple_silicon_regression." >&2
   exit 1
 fi
 
@@ -35,7 +49,11 @@ export WAYVERB_ALLOW_SILENT_FALLBACK=0
 
 for scene in "${SCENES[@]}"; do
   echo "[regression] Scene: $scene" | tee -a "$OUT_LOG"
-  if ! "$REG_BIN" --scene "$scene" "${EXTRA_ARGS[@]}" 2>&1 | tee -a "$OUT_LOG"; then
+  cmd=("$REG_BIN" "--scene" "$scene")
+  if [[ ${#EXTRA_ARGS[@]:-0} -gt 0 ]]; then
+    cmd+=("${EXTRA_ARGS[@]}")
+  fi
+  if ! "${cmd[@]}" 2>&1 | tee -a "$OUT_LOG"; then
     echo "[regression] FAILED for scene $scene" | tee -a "$OUT_LOG"
     exit 2
   fi
