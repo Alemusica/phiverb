@@ -1,5 +1,8 @@
 #include "raytracer/reflection_processor/stochastic_histogram.h"
 
+#include <algorithm>
+#include <iterator>
+
 namespace wayverb {
 namespace raytracer {
 namespace reflection_processor {
@@ -22,7 +25,21 @@ make_stochastic_histogram::get_processor(
         const core::environment& environment,
         const core::voxelised_scene_data<cl_float3,
                                          core::surface<core::simulation_bands>>&
-        /*voxelised*/) const {
+                voxelised) const {
+    const auto& surfaces = voxelised.get_scene_data().get_surfaces();
+    const bool has_scatter = std::any_of(std::begin(surfaces),
+                                         std::end(surfaces),
+                                         [](const auto& surface) {
+                                             for (size_t band = 0;
+                                                  band < core::simulation_bands;
+                                                  ++band) {
+                                                 if (surface.scattering.s[band] >
+                                                     0.0f) {
+                                                     return true;
+                                                 }
+                                             }
+                                             return false;
+                                         });
     return {cc,
             source,
             receiver,
@@ -30,7 +47,8 @@ make_stochastic_histogram::get_processor(
             total_rays_,
             max_image_source_order_,
             receiver_radius_,
-            histogram_sample_rate_};
+            histogram_sample_rate_,
+            has_scatter};
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -53,7 +71,21 @@ make_directional_histogram::get_processor(
         const core::environment& environment,
         const core::voxelised_scene_data<cl_float3,
                                          core::surface<core::simulation_bands>>&
-        /*voxelised*/) const {
+                voxelised) const {
+    const auto& surfaces = voxelised.get_scene_data().get_surfaces();
+    const bool has_scatter = std::any_of(std::begin(surfaces),
+                                         std::end(surfaces),
+                                         [](const auto& surface) {
+                                             for (size_t band = 0;
+                                                  band < core::simulation_bands;
+                                                  ++band) {
+                                                 if (surface.scattering.s[band] >
+                                                     0.0f) {
+                                                     return true;
+                                                 }
+                                             }
+                                             return false;
+                                         });
     return {cc,
             source,
             receiver,
@@ -61,7 +93,8 @@ make_directional_histogram::get_processor(
             total_rays_,
             max_image_source_order_,
             receiver_radius_,
-            histogram_sample_rate_};
+            histogram_sample_rate_,
+            has_scatter};
 }
 
 }  // namespace reflection_processor

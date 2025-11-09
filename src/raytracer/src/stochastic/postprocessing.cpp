@@ -7,6 +7,7 @@
 #include "utilities/for_each.h"
 #include "utilities/map.h"
 
+#include <array>
 #include <iostream>
 
 namespace wayverb {
@@ -55,7 +56,9 @@ void sum_histograms(energy_histogram& a, const energy_histogram& b) {
 util::aligned::vector<core::bands_type> weight_sequence(
         const energy_histogram& histogram,
         const dirac_sequence& sequence,
-        double acoustic_impedance) {
+        double acoustic_impedance,
+        const std::array<double, core::simulation_bands>&
+                sqrt_bandwidth_fractions) {
     auto ret = util::map_to_vector(
             begin(sequence.sequence), end(sequence.sequence), [](auto i) {
                 return core::make_bands_type(i);
@@ -81,12 +84,17 @@ util::aligned::vector<core::bands_type> weight_sequence(
 
         const auto squared_summed = frequency_domain::square_sum(
                 begin(sequence.sequence) + beg, begin(sequence.sequence) + end);
-        const auto scale_factor =
-                squared_summed != 0.0f
-                        ? core::intensity_to_pressure(
-                                  histogram.histogram[i] / squared_summed,
-                                  acoustic_impedance)
-                        : cl_double8{};
+        core::bands_type scale_factor{};
+        if (squared_summed != 0.0f) {
+            const auto pressure = core::intensity_to_pressure(
+                    histogram.histogram[i] / squared_summed,
+                    acoustic_impedance);
+            for (size_t band = 0; band < core::simulation_bands; ++band) {
+                scale_factor.s[band] = static_cast<float>(
+                        pressure.s[band] *
+                        sqrt_bandwidth_fractions[band]);
+            }
+        }
 
         std::for_each(begin(ret) + beg, begin(ret) + end, [&](auto& i) {
             i *= scale_factor;
@@ -99,7 +107,23 @@ util::aligned::vector<core::bands_type> weight_sequence(
 util::aligned::vector<float> postprocessing(const energy_histogram& histogram,
                                             const dirac_sequence& sequence,
                                             double acoustic_impedance) {
-    auto weighted = weight_sequence(histogram, sequence, acoustic_impedance);
+    //  Each diffuse rain band represents a fraction of the Nyquist bandwidth.
+    //  Use the real filter bandwidths (Hz) to mirror Eq. 5.47.
+    const auto params_hz = hrtf_data::hrtf_band_params_hz();
+    std::array<double, core::simulation_bands> sqrt_bandwidth_fractions{};
+    const double nyquist = std::max(sequence.sample_rate * 0.5, 1.0);
+    for (size_t band = 0; band < core::simulation_bands; ++band) {
+        const double bandwidth_hz =
+                params_hz.edges[band + 1] - params_hz.edges[band];
+        const double fraction =
+                std::max(bandwidth_hz / nyquist, 0.0);
+        sqrt_bandwidth_fractions[band] = std::sqrt(fraction);
+    }
+
+    auto weighted = weight_sequence(histogram,
+                                    sequence,
+                                    acoustic_impedance,
+                                    sqrt_bandwidth_fractions);
     return core::multiband_filter_and_mixdown(
             begin(weighted),
             end(weighted),

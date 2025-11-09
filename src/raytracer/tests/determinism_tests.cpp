@@ -1,4 +1,5 @@
 #include "raytracer/canonical.h"
+#include "raytracer/stochastic/postprocessing.h"
 
 #include "core/geo/box.h"
 #include "core/scene_data.h"
@@ -87,6 +88,17 @@ bool impulses_equal(const util::aligned::vector<raytracer::impulse<8>>& a,
     return true;
 }
 
+template <size_t Az, size_t El>
+auto flatten_histogram(
+        const raytracer::stochastic::directional_energy_histogram<Az, El>& h) {
+    return raytracer::stochastic::sum_directional_histogram(h);
+}
+
+auto flatten_histogram(
+        const raytracer::stochastic::energy_histogram& h) {
+    return h;
+}
+
 }  // namespace
 
 TEST(raytracer_determinism, identical_seed_matches) {
@@ -96,13 +108,15 @@ TEST(raytracer_determinism, identical_seed_matches) {
 
     ASSERT_TRUE(impulses_equal(result_a.aural.image_source,
                                result_b.aural.image_source));
-    ASSERT_TRUE(hist_equal(result_a.aural.stochastic,
-                           result_b.aural.stochastic));
+    const auto hist_a = flatten_histogram(result_a.aural.stochastic);
+    const auto hist_b = flatten_histogram(result_b.aural.stochastic);
+    ASSERT_TRUE(hist_equal(hist_a, hist_b));
 }
 
 TEST(raytracer_determinism, different_seed_changes_output) {
     const auto result_a = run_canonical(make_params(1234));
     const auto result_b = run_canonical(make_params(5678));
-    EXPECT_FALSE(hist_equal(result_a.aural.stochastic,
-                            result_b.aural.stochastic));
+    const auto hist_a = flatten_histogram(result_a.aural.stochastic);
+    const auto hist_b = flatten_histogram(result_b.aural.stochastic);
+    EXPECT_FALSE(hist_equal(hist_a, hist_b));
 }
