@@ -19,15 +19,24 @@ jobs:
           fetch-depth: 0
       - id: set
         run: |
-          # Try to get changed files, handle case where base doesn't exist
+          # Try to get changed files using merge-base for accurate PR diff
           if git rev-parse --verify origin/${{ github.base_ref }} >/dev/null 2>&1; then
-            CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
-          elif git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
-            CHANGED=$(git diff --name-only HEAD~1)
+            # Try merge-base approach first
+            MERGE_BASE=$(git merge-base HEAD origin/${{ github.base_ref }} 2>/dev/null || echo "")
+            if [ -n "$MERGE_BASE" ]; then
+              CHANGED=$(git diff --name-only "$MERGE_BASE" HEAD)
+            else
+              # Fallback to triple-dot diff
+              CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD 2>/dev/null || git diff --name-only HEAD~5 HEAD)
+            fi
+          elif git rev-parse --verify HEAD~5 >/dev/null 2>&1; then
+            # No base branch, use recent commits
+            CHANGED=$(git diff --name-only HEAD~5 HEAD)
           else
-            # First commit or grafted repo - check all files
+            # Very few commits, check all files
             CHANGED=$(git ls-files)
           fi
+          
           RT=false; DWM=false; MTL=false
           echo "$CHANGED" | grep -E '^src/raytracer/' && RT=true || true
           echo "$CHANGED" | grep -E '^src/waveguide/' && DWM=true || true
