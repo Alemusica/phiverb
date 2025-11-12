@@ -34,8 +34,8 @@ public:
         }
     };
     
-    static constexpr float epsilon = 1e-6f;
-    static constexpr size_t max_triangles = 100000;
+    static constexpr float epsilon() { return 1e-6f; }
+    static constexpr size_t max_triangles() { return 100000; }
     
     /// Validate a mesh by checking for degenerate triangles and other issues.
     /// This is a basic validation that checks triangle areas.
@@ -48,7 +48,7 @@ public:
         const auto& vertices = scene.get_vertices();
         
         // Check for too many triangles
-        if (triangles.size() > max_triangles) {
+        if (triangles.size() > max_triangles()) {
             report.add_warning("Mesh has " + std::to_string(triangles.size()) +
                              " triangles, which may cause performance issues.");
         }
@@ -78,7 +78,7 @@ public:
 private:
     /// Check if a triangle is degenerate (has near-zero area).
     static bool is_degenerate(const geo::triangle_vec3& tri) {
-        return triangle_area(tri) < epsilon;
+        return triangle_area(tri) < epsilon();
     }
     
     /// Calculate the area of a triangle.

@@ -9,12 +9,13 @@ namespace waveguide {
 
 class numerical_safety final {
 public:
-    static constexpr float epsilon = 1e-6f;
-    static constexpr float max_coefficient = 0.999f;
+    // Use inline constants to avoid ODR issues
+    static constexpr float epsilon() { return 1e-6f; }
+    static constexpr float max_coefficient() { return 0.999f; }
     
     /// Safe division that avoids division by zero and returns finite results.
     static inline float safe_divide(float numerator, float denominator) {
-        if (std::abs(denominator) < epsilon) {
+        if (std::abs(denominator) < epsilon()) {
             return 0.0f;
         }
         const float result = numerator / denominator;
@@ -24,7 +25,7 @@ public:
     /// Safe sine calculation that avoids singularities at 0 and π.
     static inline float safe_sin(float angle) {
         // Clamp angle to avoid problems at boundaries
-        angle = std::max(epsilon, std::min(float(M_PI) - epsilon, angle));
+        angle = std::max(epsilon(), std::min(float(M_PI) - epsilon(), angle));
         return std::sin(angle);
     }
     
@@ -41,7 +42,7 @@ public:
         if (!std::isfinite(coeff)) {
             return 0.0f;
         }
-        return std::max(-max_coefficient, std::min(max_coefficient, coeff));
+        return std::max(-max_coefficient(), std::min(max_coefficient(), coeff));
     }
     
     /// Sanitize an array of pressure values, replacing NaN/Inf with 0.
