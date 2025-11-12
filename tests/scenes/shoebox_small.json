@@ -6,8 +6,8 @@
   "alpha_bar_1k": 0.20,
   "air_m_nepers_per_m": 0.0,
   "materials": {
-    "walls": "PTB:<SOSTITUISCI>",
-    "floor": "PTB:<SOSTITUISCI>",
-    "ceiling": "PTB:<SOSTITUISCI>"
+    "walls": "hard surface - smooth unpainted concrete",
+    "floor": "floor - thin carpet",
+    "ceiling": "lightweight - wool-backed plasterboard"
   }
 }
