@@ -5,6 +5,7 @@
 
 #include "metal/metal_context.h"
 #include "metal/waveguide_pipeline.h"
+#include "embedded_waveguide_kernels.h"
 
 #include <chrono>
 #include <cstring>
@@ -214,9 +215,18 @@ kernel void layout_probe(device wayverb_metal::layout_info* outInfo [[buffer(0)]
 }
 
 id<MTLLibrary> make_library(id<MTLDevice> dev) {
-    std::string source = load_kernel_source();
-    if (source.empty()) {
-        source = fallback_kernel_source();
+    // Use embedded kernel source - this is more reliable than loading from disk
+    // especially when code is in an app bundle
+    std::string source = get_embedded_waveguide_kernels();
+    
+    // Still try to load from disk for development convenience
+    // but don't fail if it's not available
+    std::string disk_source = load_kernel_source();
+    if (!disk_source.empty()) {
+        std::cerr << "[metal] using kernel source from disk for development\n";
+        source = disk_source;
+    } else {
+        std::cerr << "[metal] using embedded kernel source\n";
     }
 
     NSError* err = nil;
