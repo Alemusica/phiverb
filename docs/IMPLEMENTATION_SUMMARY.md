@@ -32,7 +32,7 @@ This PR implements three key improvements to address numerical stability, geomet
 - Performance warnings for oversized meshes (>100k triangles)
 
 **Current Limitations**:
-- Only checks for degenerate triangles; does not detect self-intersections, non-manifold edges, or inconsistent normals despite having counters for these in the report structure
+- Only checks for degenerate triangles; more advanced checks (self-intersections, non-manifold edges, inconsistent normals) are not yet implemented
 - Stops reporting detailed errors after the first 10 degenerate triangles
 
 **Benefits**:
@@ -72,9 +72,9 @@ This PR implements three key improvements to address numerical stability, geomet
 **Coverage**:
 - 7 test cases covering all numerical safety functions
 - Tests pass when compiled standalone
-- Currently not integrated into the CMake/CTest build system
+- Now integrated into the CMake/CTest build system
 
-**Note**: This is a standalone executable, not part of the automated test suite.
+**Note**: This test executable is part of the automated test suite and can be run with `ctest` or directly.
 
 ## Design Decisions
 
