@@ -1,7 +1,6 @@
 name: Ask Gate
 on:
   pull_request:
-    branches: [ main ]
 concurrency:
   group: ask-${{ github.ref }}
   cancel-in-progress: true
