@@ -19,6 +19,18 @@
 
 Mantieni questo file aggiornato se cambiano le direttive operative.
 
+## Metal Assistant Agent
+
+- Custom agent disponibile: `.github/agents/phiverb-metal-assistant.agent.md`
+- Specializzato in: Metal API porting, Apple Silicon optimization, debugging audio rendering
+- Script di supporto:
+  - `scripts/test_metal.sh` - Test compilazione shader Metal e unit tests
+  - `scripts/validate_audio.py` - Validazione output audio
+  - `scripts/benchmark.sh` - Benchmark performance
+- CI dedicata: `.github/workflows/metal-ci.yml`
+- Per invocare l'agente: usa il file agent con GitHub CLI o Copilot CLI
+- Esempio: `gh copilot chat -a .github/agents/phiverb-metal-assistant.agent.md "How do I fix clBuildProgram error?"`
+
 ## Agent Ops / Token Guard
 
 - Runner macOS/Metal: quando il self-hosted `self-hosted, macos, metal` è attivo, conferma nel log della PR con `runner=macos-metal ready` (fallisce la CI se manca il label, quindi tienilo monitorato).
