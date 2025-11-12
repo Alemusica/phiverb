@@ -11,7 +11,8 @@ add_custom_command(
     ${CMAKE_SOURCE_DIR}/src/waveguide/include/waveguide/metal/layout_structs.metal
     ${CMAKE_SOURCE_DIR}/src/waveguide/include/waveguide/metal/common.metal
     ${CMAKE_CURRENT_SOURCE_DIR}/src/waveguide_kernels.metal
-  COMMENT "Generating embedded Metal kernel source"
+  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  COMMENT "Generating embedded Metal kernel source with ${Python3_EXECUTABLE}"
   VERBATIM
 )
 

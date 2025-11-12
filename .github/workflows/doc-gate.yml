@@ -18,7 +18,16 @@ jobs:
           python3 - <<'PY'
           import json, os, re, subprocess, sys
           base = os.environ.get("GITHUB_BASE_REF", "main")
-          diff = subprocess.check_output(["git", "diff", "--name-only", f"origin/{base}...HEAD"], text=True)
+          # Try to get diff, handle case where base branch doesn't exist
+          try:
+              diff = subprocess.check_output(["git", "diff", "--name-only", f"origin/{base}...HEAD"], text=True, stderr=subprocess.DEVNULL)
+          except subprocess.CalledProcessError:
+              # Fallback: use HEAD~1 or just list all tracked files
+              try:
+                  diff = subprocess.check_output(["git", "diff", "--name-only", "HEAD~1"], text=True, stderr=subprocess.DEVNULL)
+              except subprocess.CalledProcessError:
+                  # Last resort: assume we're on first commit, list all files
+                  diff = subprocess.check_output(["git", "ls-files"], text=True)
           files = [line.strip() for line in diff.splitlines() if line.strip()]
           event_path = os.environ.get("GITHUB_EVENT_PATH", "")
           pr_body = ""
