@@ -12,6 +12,7 @@ public:
     // Use inline constants to avoid ODR issues
     static constexpr float epsilon() { return 1e-6f; }
     static constexpr float max_coefficient() { return 0.999f; }
+    static constexpr float pi() { return 3.14159265358979323846f; }
     
     /// Safe division that avoids division by zero and returns finite results.
     static inline float safe_divide(float numerator, float denominator) {
@@ -22,11 +23,13 @@ public:
         return std::isfinite(result) ? result : 0.0f;
     }
     
-    /// Safe sine calculation that avoids singularities at 0 and π.
+    /// Safe sine calculation that clamps to finite range.
+    /// Note: This is a simplified version that assumes angles are already in reasonable range.
+    /// For production use, consider wrapping angle to [0, 2π] first.
     static inline float safe_sin(float angle) {
-        // Clamp angle to avoid problems at boundaries
-        angle = std::max(epsilon(), std::min(float(M_PI) - epsilon(), angle));
-        return std::sin(angle);
+        // Just return regular sin, checking for finite result
+        const float result = std::sin(angle);
+        return std::isfinite(result) ? result : 0.0f;
     }
     
     /// Sanitize a float value by replacing NaN/Inf with a default value.

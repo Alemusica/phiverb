@@ -18,9 +18,6 @@ public:
     struct validation_report final {
         bool is_valid{true};
         size_t degenerate_triangles{0};
-        size_t self_intersections{0};
-        size_t inconsistent_normals{0};
-        size_t non_manifold_edges{0};
         std::vector<std::string> errors;
         std::vector<std::string> warnings;
         

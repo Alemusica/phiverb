@@ -10,7 +10,7 @@ This PR implements three key improvements to address numerical stability, geomet
 
 **Features**:
 - `safe_divide()`: Division with zero-check and finite result guarantee
-- `safe_sin()`: Sine calculation avoiding singularities at 0 and π
+- `safe_sin()`: Sine calculation with finite result check (simplified version)
 - `sanitize()`: Replace NaN/Inf with safe defaults
 - `sanitize_reflection_coefficient()`: Clamp reflection coefficients to [-0.999, 0.999]
 - `sanitize_pressure_field()`: Batch sanitization of pressure arrays
@@ -20,19 +20,27 @@ This PR implements three key improvements to address numerical stability, geomet
 - Ensures numerical stability in boundary coefficient calculations
 - Provides diagnostic capabilities (returns count of bad values found)
 
+**Note**: Currently not integrated into the main codebase; integration points are documented but not implemented.
+
 ### 2. `src/core/include/core/geometry_validator.h`
 **Purpose**: Validate mesh geometry before simulation
 
 **Features**:
 - `validation_report`: Structured report of geometry issues
-- `validate()`: Check for degenerate triangles and other mesh problems
+- `validate()`: Check for degenerate triangles
 - Detection of zero-area triangles
 - Performance warnings for oversized meshes (>100k triangles)
+
+**Current Limitations**:
+- Only checks for degenerate triangles; does not detect self-intersections, non-manifold edges, or inconsistent normals despite having counters for these in the report structure
+- Stops reporting detailed errors after the first 10 degenerate triangles
 
 **Benefits**:
 - Catches geometry errors before they cause simulation failures
 - Provides clear error messages for debugging
 - Prevents crashes from invalid mesh data
+
+**Note**: Currently not integrated into the main codebase; potential integration points include scene loading and mesh setup.
 
 ### 3. `src/core/include/core/simd_apple.h`
 **Purpose**: Accelerate computation on Apple Silicon using NEON intrinsics
@@ -63,8 +71,10 @@ This PR implements three key improvements to address numerical stability, geomet
 
 **Coverage**:
 - 7 test cases covering all numerical safety functions
-- All tests passing
-- Independent of full build system
+- Tests pass when compiled standalone
+- Currently not integrated into the CMake/CTest build system
+
+**Note**: This is a standalone executable, not part of the automated test suite.
 
 ## Design Decisions
 
@@ -153,7 +163,7 @@ This PR implements three key improvements to address numerical stability, geomet
 ## Future Work
 
 ### Potential Extensions
-1. Extend geometry_validator to detect:
+1. Extend geometry_validator to detect (currently only checks degenerate triangles):
    - Self-intersections
    - Non-manifold edges
    - Inconsistent normals
@@ -172,6 +182,11 @@ This PR implements three key improvements to address numerical stability, geomet
    - Overflow detection in accumulation
    - Underflow handling for very small values
    - Custom epsilon for different scales
+
+5. Integration into main codebase:
+   - Add numerical_safety calls to boundary coefficient calculations
+   - Integrate geometry_validator into scene loading pipeline
+   - Use SIMD functions in waveguide pressure field updates
 
 ## Compliance
 
