@@ -136,25 +136,38 @@ simd_apple::process_pressure_field_simd(
 
 ### Add Scalar with SIMD
 ```cpp
+#ifdef __APPLE__
+#if TARGET_CPU_ARM64
+
 // Add a scalar value to all elements using SIMD
 std::vector<float> data(10000);
 float offset = 1.0f;
 
 simd_apple::add_scalar_simd(data.data(), data.size(), offset);
+
+#endif  // TARGET_CPU_ARM64
+#endif  // __APPLE__
 ```
 
 ### Manual SIMD Operations
 ```cpp
+#ifdef __APPLE__
+#if TARGET_CPU_ARM64
+
 // Low-level SIMD operations
 float input[4] = {1.0f, 2.0f, 3.0f, 4.0f};
 float output[4];
+float multiplier[4] = {2.0f, 2.0f, 2.0f, 2.0f};
 
 auto vec = simd_apple::load(input);
-auto doubled = simd_apple::mul(vec, simd_apple::load((float[]){2.0f, 2.0f, 2.0f, 2.0f}));
+auto doubled = simd_apple::mul(vec, simd_apple::load(multiplier));
 simd_apple::store(output, doubled);
 
 // Sum reduction
 float total = simd_apple::sum(vec);  // Returns 10.0f
+
+#endif  // TARGET_CPU_ARM64
+#endif  // __APPLE__
 ```
 
 ## Integration Examples
