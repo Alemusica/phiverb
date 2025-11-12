@@ -60,3 +60,7 @@ _work/
 !.xcodeproj/project.pbxproj
 .idea/
 .vscode/
+# Python
+__pycache__/
+*.pyc
+*.pyo
