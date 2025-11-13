@@ -1,4 +1,4 @@
 #pragma once
-#define WAYVERB_BUILD_GIT_DESC "3b053cd-dirty"
-#define WAYVERB_BUILD_GIT_BRANCH "copilot/fix-nan-issues"
-#define WAYVERB_BUILD_TIMESTAMP "2025-11-12T18:16:11+0000"
+#define WAYVERB_BUILD_GIT_DESC "730839b-dirty"
+#define WAYVERB_BUILD_GIT_BRANCH "copilot/fix-gpu-simulation-bug"
+#define WAYVERB_BUILD_TIMESTAMP "2025-11-13T22:28:10+0000"

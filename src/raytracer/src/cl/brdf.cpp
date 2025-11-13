@@ -36,12 +36,17 @@ static inline void onb_frisvad(float3 n, float3* tangent, float3* bitangent) {
     const float sign_z = copysign(1.0f, nn.z);
     const float a = -1.0f / (sign_z + nn.z);
     const float b = a * nn.x * nn.y;
-    *tangent = normalize((float3)(1.0f + sign_z * nn.x * nn.x * a,
-                                  sign_z * b,
-                                  -sign_z * nn.x));
-    *bitangent = normalize((float3)(b,
-                                    sign_z + nn.y * nn.y * a,
-                                    -nn.y));
+    const float3 t_unnorm = (float3)(1.0f + sign_z * nn.x * nn.x * a,
+                                      sign_z * b,
+                                      -sign_z * nn.x);
+    const float t_len_sq = dot(t_unnorm, t_unnorm);
+    *tangent = t_len_sq > FLT_MIN ? t_unnorm * rsqrt(t_len_sq) : (float3)(1.0f, 0.0f, 0.0f);
+    
+    const float3 b_unnorm = (float3)(b,
+                                      sign_z + nn.y * nn.y * a,
+                                      -nn.y);
+    const float b_len_sq = dot(b_unnorm, b_unnorm);
+    *bitangent = b_len_sq > FLT_MIN ? b_unnorm * rsqrt(b_len_sq) : (float3)(0.0f, 1.0f, 0.0f);
 }
 
 static inline float3 lambert_sample(float3 surface_normal,
@@ -63,7 +68,8 @@ static inline float3 lambert_sample(float3 surface_normal,
     float3 world = local.x * tangent +
                    local.y * bitangent +
                    local.z * shading_normal;
-    world = normalize(world);
+    const float world_len_sq = dot(world, world);
+    world = world_len_sq > FLT_MIN ? world * rsqrt(world_len_sq) : shading_normal;
     const float cos_theta_local = fmax(0.0f, dot(world, shading_normal));
     if (cos_theta) {
         *cos_theta = cos_theta_local;
