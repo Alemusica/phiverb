@@ -1,6 +1,7 @@
 #pragma once
 
 #include "raytracer/image_source/reflection_path_builder.h"
+#include "raytracer/reflection_processor/mis_weights.h"
 
 #include "core/cl/common.h"
 #include "core/environment.h"
@@ -44,7 +45,9 @@ public:
             const core::voxelised_scene_data<
                     cl_float3,
                     core::surface<core::simulation_bands>>& voxelised,
-            size_t max_order);
+            size_t max_order,
+            size_t total_rays,
+            float mis_delta_pdf);
 
     image_source_group_processor get_group_processor(
             size_t num_directions) const;
@@ -62,15 +65,22 @@ private:
     size_t num_directions_;
 
     size_t max_order_;
+    size_t total_rays_;
+    float mis_image_source_weight_;
+    bool mis_enabled_;
 
     raytracer::image_source::tree tree_;
+
+    float mis_weight_for_order(size_t order) const;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
 
 class make_image_source final {
 public:
-    make_image_source(size_t max_order);
+    make_image_source(size_t max_order,
+                      size_t total_rays = 0,
+                      float mis_delta_pdf = reflection_processor::default_mis_delta_pdf);
 
     image_source_processor get_processor(
             const core::compute_context& cc,
@@ -83,6 +93,8 @@ public:
 
 private:
     size_t max_order_;
+    size_t total_rays_;
+    float mis_delta_pdf_;
 };
 
 }  // namespace reflection_processor

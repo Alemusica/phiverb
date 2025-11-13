@@ -2,36 +2,77 @@
 
 namespace cl_sources {
 const char* brdf{R"(
-//  z range: -1 to 1
-//  theta range: -pi to pi
-float3 sphere_point(float z, float theta);
-float3 sphere_point(float z, float theta) {
-    const float t = sqrt(1 - z * z);
-    return (float3)(t * cos(theta), z, t * sin(theta));
+static inline float3 cosine_sample_hemisphere(float u1, float u2) {
+    const float u1_clamped = clamp(u1, 0.0f, 0.9999999f);
+    const float u2_wrapped = u2 - floor(u2);
+    const float r = sqrt(u1_clamped);
+    const float phi = (float)(2.0f * M_PI_F) * u2_wrapped;
+    float s_phi;
+    float c_phi;
+    s_phi = sin(phi);
+    c_phi = cos(phi);
+    const float z = sqrt(fmax(0.0f, 1.0f - u1_clamped));
+    return (float3)(r * c_phi, r * s_phi, z);
 }
 
-////////////////////////////////////////////////////////////////////////////////
+static inline void onb_frisvad(float3 n, float3* tangent, float3* bitangent) {
+    const float len_sq = dot(n, n);
+    if (!(len_sq > 0.0f)) {
+        *tangent = (float3)(1.0f, 0.0f, 0.0f);
+        *bitangent = (float3)(0.0f, 1.0f, 0.0f);
+        return;
+    }
 
-//  surface_normal: the direction of the surface normal (unit vector)
-//  random: a random vector (unit vector)
-//
-//  returns: a random vector in a hemisphere oriented according to the surface
-//           normal
-float3 lambert_vector(float3 surface_normal, float3 random);
-float3 lambert_vector(float3 surface_normal, float3 random) {
-    return random * signbit(dot(random, surface_normal));
+    const float inv_len = rsqrt(len_sq);
+    const float3 nn = n * inv_len;
+    const float abs_z = fabs(nn.z);
+    if (abs_z > 0.999999f) {
+        const float sign_z = copysign(1.0f, nn.z);
+        *tangent = (float3)(1.0f, 0.0f, 0.0f);
+        *bitangent = (float3)(0.0f, sign_z, 0.0f);
+        return;
+    }
+
+    const float sign_z = copysign(1.0f, nn.z);
+    const float a = -1.0f / (sign_z + nn.z);
+    const float b = a * nn.x * nn.y;
+    *tangent = normalize((float3)(1.0f + sign_z * nn.x * nn.x * a,
+                                  sign_z * b,
+                                  -sign_z * nn.x));
+    *bitangent = normalize((float3)(b,
+                                    sign_z + nn.y * nn.y * a,
+                                    -nn.y));
 }
 
-float3 lambert_scattering(float3 specular,
-                          float3 surface_normal,
-                          float3 random,
-                          float d);
-float3 lambert_scattering(float3 specular,
-                          float3 surface_normal,
-                          float3 random,
-                          float d) {
-    const float3 l = lambert_vector(surface_normal, random);
-    return normalize((l * d) + (specular * (1 - d)));
+static inline float3 lambert_sample(float3 surface_normal,
+                                    float u1,
+                                    float u2,
+                                    float* cos_theta) {
+    const float normal_len_sq = dot(surface_normal, surface_normal);
+    float3 shading_normal = surface_normal;
+    if (normal_len_sq > 0.0f) {
+        shading_normal *= rsqrt(normal_len_sq);
+    } else {
+        shading_normal = (float3)(0.0f, 1.0f, 0.0f);
+    }
+
+    float3 tangent;
+    float3 bitangent;
+    onb_frisvad(shading_normal, &tangent, &bitangent);
+    const float3 local = cosine_sample_hemisphere(u1, u2);
+    float3 world = local.x * tangent +
+                   local.y * bitangent +
+                   local.z * shading_normal;
+    world = normalize(world);
+    const float cos_theta_local = fmax(0.0f, dot(world, shading_normal));
+    if (cos_theta) {
+        *cos_theta = cos_theta_local;
+    }
+    return world;
+}
+
+static inline float lambert_pdf(float cos_theta) {
+    return cos_theta > 0.0f ? cos_theta * (1.0f / M_PI_F) : 0.0f;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

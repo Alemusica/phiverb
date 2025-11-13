@@ -1,0 +1,24 @@
+{
+  "origin": [
+    -0.3533383905887604,
+    -0.3533383905887604,
+    -0.3533383905887604
+  ],
+  "dims": [
+    123,
+    77,
+    55
+  ],
+  "voxel_pitch": 0.0883346,
+  "labels": [
+    "default",
+    "floor",
+    "ceiling",
+    "walls"
+  ],
+  "files": {
+    "sdf": "shoebox_long.sdf.bin",
+    "normals": "shoebox_long.normals.bin",
+    "labels": "shoebox_long.labels.bin"
+  }
+}

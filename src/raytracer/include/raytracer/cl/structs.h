@@ -10,14 +10,14 @@ namespace wayverb {
 namespace raytracer {
 
 struct alignas(1 << 5) stochastic_path_info final {
-    core::bands_type volume;  //  product of previous specular components
-    cl_float3 position;       //  because otherwise we won't be able to
-                              //  calculate a new distance
-    cl_float distance;        //  total distance travelled
+    core::bands_type throughput;     // weighted throughput used by MIS
+    core::bands_type deterministic;  // deterministic/specular energy
+    cl_float3 position;              // last interaction position
+    cl_float distance;               // total distance travelled
 };
 
 constexpr auto to_tuple(const stochastic_path_info& x) {
-    return std::tie(x.volume, x.position, x.distance);
+    return std::tie(x.throughput, x.deterministic, x.position, x.distance);
 }
 
 constexpr bool operator==(const stochastic_path_info& a,
@@ -108,6 +108,8 @@ typedef struct {
     char receiver_visible;
     char sampled_diffuse;
     char padding;
+    float sample_pdf;
+    float cos_theta;
 } reflection;
 )";
 };
@@ -116,7 +118,8 @@ template <>
 struct core::cl_representation<raytracer::stochastic_path_info> final {
     static constexpr auto value = R"(
 typedef struct {
-    bands_type volume;
+    bands_type throughput;
+    bands_type deterministic;
     float3 position;
     float distance;
 } stochastic_path_info;

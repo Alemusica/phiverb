@@ -1,4 +1,6 @@
 #include "waveguide/cl/filter_structs.h"
+#include "waveguide/cl/structs.h"
+#include "waveguide/boundary_layout.h"
 #include "waveguide/program.h"
 
 #include "core/cl/common.h"
@@ -32,16 +34,16 @@ layout_info compute_host_layout() {
     info.sz_boundary_data = static_cast<std::uint32_t>(sizeof(boundary_data));
     info.sz_boundary_data_array_3 =
             static_cast<std::uint32_t>(sizeof(boundary_data_array_3));
-    info.off_bd_filter_memory =
-            static_cast<std::uint32_t>(offsetof(boundary_data, filter_memory));
-    info.off_bd_coefficient_index =
-            static_cast<std::uint32_t>(offsetof(boundary_data, coefficient_index));
-    info.off_b3_data0 =
-            static_cast<std::uint32_t>(offsetof(boundary_data_array_3, array[0]));
-    info.off_b3_data1 =
-            static_cast<std::uint32_t>(offsetof(boundary_data_array_3, array[1]));
-    info.off_b3_data2 =
-            static_cast<std::uint32_t>(offsetof(boundary_data_array_3, array[2]));
+    info.off_bd_filter_memory = static_cast<std::uint32_t>(
+            offsetof(boundary_data, filter_memory));
+    info.off_bd_coefficient_index = static_cast<std::uint32_t>(
+            offsetof(boundary_data, coefficient_index));
+    info.off_b3_data0 = static_cast<std::uint32_t>(
+            offsetof(boundary_data_array_3, array[0]));
+    info.off_b3_data1 = static_cast<std::uint32_t>(
+            offsetof(boundary_data_array_3, array[1]));
+    info.off_b3_data2 = static_cast<std::uint32_t>(
+            offsetof(boundary_data_array_3, array[2]));
     return info;
 }
 

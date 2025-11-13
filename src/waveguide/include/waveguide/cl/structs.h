@@ -32,6 +32,14 @@ inline bool operator!=(const condensed_node& a, const condensed_node& b) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+struct alignas(1 << 2) boundary_header final {
+    cl_uint guard{};
+    cl_ushort dif{};
+    cl_ushort material_index{};
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
 /// Stores filter coefficients for a single high-order filter, and an index
 /// into an array of filter parameters which describe the filter being
 /// modelled.
@@ -98,6 +106,17 @@ typedef struct {
     int boundary_type;
     uint boundary_index;
 } condensed_node;
+)";
+};
+
+template <>
+struct core::cl_representation<waveguide::boundary_header> final {
+    static constexpr auto value = R"(
+typedef struct {
+    uint guard;
+    ushort dif;
+    ushort material_index;
+} boundary_header;
 )";
 };
 

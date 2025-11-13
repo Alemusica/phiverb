@@ -49,10 +49,11 @@ bands_type specular(bands_type total_reflected, bands_type scattering) {
 }
 
 kernel void init_stochastic_path_info(global stochastic_path_info* info,
-                                   bands_type volume,
-                                   float3 position) {
+                                      bands_type volume,
+                                      float3 position) {
     const size_t thread = get_global_id(0);
-    info[thread] = (stochastic_path_info){volume, position, 0};
+    info[thread] =
+            (stochastic_path_info){volume, volume, position, 0.0f};
 }
 
 kernel void stochastic(const global reflection* reflections,
@@ -87,18 +88,41 @@ kernel void stochastic(const global reflection* reflections,
     const bands_type reflectance =
             absorption_to_energy_reflectance(reflective_surface.absorption);
 
-    const bands_type last_volume = stochastic_path[thread].volume;
-    const bands_type outgoing = last_volume * reflectance;
+    // Get incoming energy from path accumulators
+    const bands_type throughput = stochastic_path[thread].throughput;
+    const bands_type deterministic = stochastic_path[thread].deterministic;
+    const bands_type outgoing_throughput = throughput * reflectance;
+    const bands_type outgoing_specular = deterministic * reflectance;
 
+    // Scattering probabilities and sample info
     const float scatter_probability = reflections[thread].scatter_probability;
+    const bool sampled_diffuse = reflections[thread].sampled_diffuse;
     const float diffuse_prob = fmax(scatter_probability, 1.0e-4f);
     const float specular_prob = fmax(1.0f - scatter_probability, 1.0e-4f);
-    const bool sampled_diffuse = reflections[thread].sampled_diffuse;
 
+    // Split reflected energy into diffuse and specular components
     const bands_type diffuse_component =
-            scattered(outgoing, reflective_surface.scattering);
+            scattered(outgoing_throughput, reflective_surface.scattering);
     const bands_type specular_component =
-            specular(outgoing, reflective_surface.scattering);
+            specular(outgoing_throughput, reflective_surface.scattering);
+    const bands_type rain_energy =
+            scattered(outgoing_specular, reflective_surface.scattering);
+    const bands_type specular_chain =
+            specular(outgoing_specular, reflective_surface.scattering);
+
+    // Calculate throughput for path continuation with BRDF weighting for diffuse samples
+    bands_type diffuse_throughput;
+    if (sampled_diffuse) {
+        const float cos_theta = fmax(reflections[thread].cos_theta, 0.0f);
+        const float sample_pdf = fmax(reflections[thread].sample_pdf, 1e-6f);
+        const bands_type diffuse_brdf =
+                reflectance * reflective_surface.scattering * (1.0f / M_PI_F);
+        diffuse_throughput = throughput * diffuse_brdf * (cos_theta / sample_pdf);
+    } else {
+        diffuse_throughput = diffuse_component;
+    }
+    const bands_type specular_throughput = specular_component;
+
 
     const float3 last_position = stochastic_path[thread].position;
     const float3 this_position = reflections[thread].position;
@@ -108,32 +132,22 @@ kernel void stochastic(const global reflection* reflections,
     const float this_distance =
             last_distance + distance(last_position, this_position);
 
-    const bands_type propagated = sampled_diffuse
-                                          ? (diffuse_component / diffuse_prob)
-                                          : (specular_component /
-                                             specular_prob);
+    const bands_type propagated_throughput =
+            sampled_diffuse ? (diffuse_throughput / diffuse_prob)
+                            : (specular_throughput / specular_prob);
+    const bands_type propagated_deterministic = specular_chain;
 
     //  set accumulator
-    stochastic_path[thread] = (stochastic_path_info){
-            propagated, this_position, this_distance};
+    stochastic_path[thread] = (stochastic_path_info){propagated_throughput,
+                                                     propagated_deterministic,
+                                                     this_position,
+                                                     this_distance};
 
     //  compute output
-    
-    //  specular output
-    if (line_segment_sphere_intersection(
-                last_position, this_position, receiver, receiver_radius)) {
-        const float3 to_receiver = receiver - last_position;
-        const float to_receiver_distance = length(to_receiver);
-        const float total_distance = last_distance + to_receiver_distance;
 
-        const bands_type output_volume = last_volume;
-
-        intersected_output[thread] =
-                (impulse){output_volume, last_position, total_distance};
-    }
-
-    //  stochastic output
-    if (reflections[thread].receiver_visible) {
+    //  stochastic output (diffuse rain per Schroeder 5.20)
+    //  Only output when receiver is visible AND path was sampled diffusely
+    if (reflections[thread].receiver_visible && sampled_diffuse) {
         const float3 to_receiver = receiver - this_position;
         const float to_receiver_distance = length(to_receiver);
         const float total_distance = this_distance + to_receiver_distance;
@@ -156,12 +170,16 @@ kernel void stochastic(const global reflection* reflections,
                 receiver_radius / max(receiver_radius, to_receiver_distance);
         const float angle_correction = 1 - sqrt(1 - sin_y * sin_y);
 
-        const bands_type output_volume =
-                angle_correction * 2 * cos_angle * diffuse_component;
+        // Apply distance attenuation for diffuse rain
+        const float inv_distance_sq =
+                1.0f / fmax(to_receiver_distance * to_receiver_distance,
+                            1.0e-6f);
+        const bands_type diffuse_output = rain_energy * angle_correction *
+                                          (2 * cos_angle) * inv_distance_sq;
 
         //  set output
         stochastic_output[thread] =
-                (impulse){output_volume, this_position, total_distance};
+                (impulse){diffuse_output, this_position, total_distance};
     }
 }
 

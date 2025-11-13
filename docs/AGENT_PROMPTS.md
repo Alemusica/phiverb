@@ -1,5 +1,9 @@
 # Agent Prompts / Hand-off Notes
 
+> Tutti gli agenti devono leggere e seguire la Runbook (`docs/agent_runbook.md`). Le sezioni sotto aggiungono solo specifiche tecniche.
+>
+> **Uso della documentazione legacy:** i file storici (es. note originali di Reuben) vanno trattati come “mappe” dell’edificio: servono solo per capire cosa è stato fatto e dove intervenire, ma non per ripristinare pipeline o test obsoleti. Ogni implementazione deve rifarsi alle sezioni 2025 (Runbook + Action Plan); i test legacy si consultano solo per archeologia o confronto, mai come riferimento operativo.
+
 ## Raytracer (worktree `PhiVerb-rt`, branch `rt/...`)
 
 - Prima di continuare, apri `docs_source/boundary.md` e leggi il blocco
@@ -31,12 +35,11 @@ Mantieni questo file aggiornato se cambiano le direttive operative.
 - Per invocare l'agente: usa il file agent con GitHub CLI o Copilot CLI
 - Esempio: `gh copilot chat -a .github/agents/phiverb-metal-assistant.agent.md "How do I fix clBuildProgram error?"`
 
-## Agent Ops / Token Guard
+## Agent Ops / Token Guard (riassunto Runbook)
 
-- Runner macOS/Metal: quando il self-hosted `self-hosted, macos, metal` è attivo, conferma nel log della PR con `runner=macos-metal ready` (fallisce la CI se manca il label, quindi tienilo monitorato).
-- Controlla sempre il budget di token prima di dumpare output lunghi: `scripts/agents/token_guard.sh path/al/file.md` oppure `... | scripts/agents/token_guard.sh`.
-- Regole di checkpoint:
-  1. 20%: apri una PR in draft (anche vuota).
-  2. 60%: esegui `scripts/agents/checkpoint_or_pr.sh` per salvare lo stato.
-  3. 80%: la PR deve esistere e va aggiornata con l’ID dell’action plan.
-  4. 90%: nuovo checkpoint + esci; se servono info, usa `scripts/ask/...`.
+- Segui la Runbook per worktree obbligatori, log (`tools/run_wayverb.sh` + `scripts/monitor_app_log.sh`), regressioni (`tools/run_regression_suite.sh`) e gestione mesh `geometrie_wayverb/`.
+- Runner macOS/Metal: quando il self-hosted `self-hosted, macos, metal` è attivo, commenta `runner=macos-metal ready` sulla PR (la CI fallisce se manca).
+- Dev diary: logga ogni sessione con `scripts/agents/log_note.sh "messaggio"` (file `logs/control_room/<agent>.md`) e referenzia quelle note in PR/action plan. Quando completi una voce dell’Action Plan, spunta la checkbox in `docs/action_plan.md` e cita log/commit.
+- Policy di debug: dopo 5 tentativi/fallimenti consecutivi dello stesso test devi fermarti e aprire un’ASK (via `docs/archeology.md`/Control Room) con log e note; riprendi solo dopo feedback.
+- Token guard: prima di output >1k token usa `scripts/agents/token_guard.sh ...`; se entra in stato giallo/rosso rispetta i checkpoint descritti nella Runbook.
+- Checkpoint obbligatori (20/60/80/90%) e riferimenti ai log/action plan sono verificati via template PR; vedi `docs/agent_runbook.md` §3-5.

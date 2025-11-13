@@ -1,6 +1,6 @@
 #pragma once
 
-#include "waveguide/boundary_coefficient_finder.h"
+#include "waveguide/boundary_layout.h"
 #include "waveguide/cl/utils.h"
 #include "waveguide/mesh_descriptor.h"
 #include "waveguide/program.h"
@@ -28,18 +28,12 @@ class vectors final {
 public:
     vectors(util::aligned::vector<condensed_node> nodes,
             util::aligned::vector<coefficients_canonical> coefficients,
-            boundary_index_data boundary_index_data);
-
-    template <size_t n>
-    const util::aligned::vector<boundary_index_array<n>>& get_boundary_indices()
-            const;
-
-    template <size_t n>
-    const util::aligned::vector<cl_uint>& get_boundary_node_indices() const;
+            boundary_layout boundary_layout);
 
     const util::aligned::vector<condensed_node>& get_condensed_nodes() const;
     const util::aligned::vector<coefficients_canonical>& get_coefficients()
             const;
+    const boundary_layout& get_boundary_layout() const { return boundary_layout_; }
 
     void set_coefficients(coefficients_canonical c);
     void set_coefficients(util::aligned::vector<coefficients_canonical> c);
@@ -47,64 +41,8 @@ public:
 private:
     util::aligned::vector<condensed_node> condensed_nodes_;
     util::aligned::vector<coefficients_canonical> coefficients_;
-    boundary_index_data boundary_index_data_;
-    util::aligned::vector<cl_uint> boundary_nodes_1_;
-    util::aligned::vector<cl_uint> boundary_nodes_2_;
-    util::aligned::vector<cl_uint> boundary_nodes_3_;
+    boundary_layout boundary_layout_;
 };
-
-template <>
-inline const util::aligned::vector<boundary_index_array<1>>&
-vectors::get_boundary_indices<1>() const {
-    return boundary_index_data_.b1;
-}
-template <>
-inline const util::aligned::vector<boundary_index_array<2>>&
-vectors::get_boundary_indices<2>() const {
-    return boundary_index_data_.b2;
-}
-template <>
-inline const util::aligned::vector<boundary_index_array<3>>&
-vectors::get_boundary_indices<3>() const {
-    return boundary_index_data_.b3;
-}
-
-template <>
-inline const util::aligned::vector<cl_uint>&
-vectors::get_boundary_node_indices<1>() const {
-    return boundary_nodes_1_;
-}
-template <>
-inline const util::aligned::vector<cl_uint>&
-vectors::get_boundary_node_indices<2>() const {
-    return boundary_nodes_2_;
-}
-template <>
-inline const util::aligned::vector<cl_uint>&
-vectors::get_boundary_node_indices<3>() const {
-    return boundary_nodes_3_;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-template <size_t N>
-static boundary_data_array<N> construct_boundary_data_array(
-        const boundary_index_array<N>& arr) {
-    boundary_data_array<N> ret{};
-    for (auto i = 0u; i != N; ++i) {
-        ret.array[i].coefficient_index = arr.array[i];
-    }
-    return ret;
-}
-
-template <size_t n>
-inline util::aligned::vector<boundary_data_array<n>> get_boundary_data(
-        const vectors& d) {
-    const auto indices = d.get_boundary_indices<n>();
-    return util::map_to_vector(begin(indices), end(indices), [](const auto& i) {
-        return construct_boundary_data_array(i);
-    });
-}
 
 }  // namespace waveguide
 }  // namespace wayverb

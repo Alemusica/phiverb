@@ -16,7 +16,9 @@ struct alignas(1 << 4) reflection final {
     cl_char receiver_visible;  //  whether or not the receiver is visible from
                                //  this point
     cl_char sampled_diffuse;   //  whether the outgoing direction was diffuse
-    cl_char padding;
+    cl_char padding;           //  explicit padding to keep the following floats aligned
+    cl_float sample_pdf;       //  pdf used for the sampled outgoing direction
+    cl_float cos_theta;        //  abs(dot(normal, outgoing)) used for throughput
 };
 
 constexpr auto to_tuple(const reflection& x) {
@@ -25,7 +27,9 @@ constexpr auto to_tuple(const reflection& x) {
                     x.scatter_probability,
                     x.keep_going,
                     x.receiver_visible,
-                    x.sampled_diffuse);
+                    x.sampled_diffuse,
+                    x.sample_pdf,
+                    x.cos_theta);
 }
 
 constexpr bool operator==(const reflection& a, const reflection& b) {

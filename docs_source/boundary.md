@@ -44,6 +44,17 @@ tracing, in which each ray carries separate red, green, and blue components.
 These components are modified independently, depending on the colour of the
 reflective surface.
 
+### 2025 status / design targets
+
+The ray-tracing stack now targets the following hard requirements:
+
+- **Energy-preserving BRDF sampling.** Diffuse lobes must expose an explicit PDF and update throughput using the PBRT convention `β ← β · f(ω_i→ω_o) · cosθ / pdf`, ensuring the Lambertian integral over the hemisphere returns `(1-α_b)` for every band.
+- **Mandatory diffuse rain emission.** Whenever a bounce samples the diffuse lobe, the rain source is spawned immediately and injects exactly `(1-α_b)·s_b` toward any visible receiver. Skipping or averaging these sources is not permitted.
+- **ISM ↔ PT parity via MIS.** The stochastic tracer is balance-heuristic MIS-combined with a Borish ISM solution through 4th order. On the shoebox regression scene the two estimators must match to ±1 sample in ToA and ±0.5 dB in amplitude for purely specular surfaces.
+- **Hard diagnostics, no silent fallbacks.** Kernels instrumented with `finite_or_zero(...)` accumulate `nanCount` and abort immediately if non-finite values appear; do not zero-out problematic rays or continue silently.
+
+Reference this section in any PR that modifies the ray tracer. Treat the legacy paragraphs below as historical background only.
+
 By definition, image-source models find only specular reflections (i.e. image
 sources), so scattering is not implemented in these models.  Scattering can be
 implemented in ray tracers, but there is no consensus on the optimum method.
@@ -100,12 +111,39 @@ receiver.](images/diffuse_rain){#fig:diffuse_rain}
 
 ## DWM Implementation
 
-### 2025 status / design targets
+### 2025 status / design targets {#dwm-2025-status}
 
-- **Sorgenti trasparenti/PCS**: niente hard/soft; si iniettano onde viaggianti e si rispetta Courant.
-- **SDF + Digital Impedance Filters**: i kernel non cercano triangoli in runtime, ma leggono SDF/precomputed DIF (anche su edge/corner).
-- **Guard-tag + fail-fast**: ogni NaN va azzerato, conteggiato e causa abort.
-- **SoA/Morton layout**: KW/LRS restano nel doc come storia; il solver  attuale usa SoA + DIF come da piano GPT-5.
+> This block supersedes the older historical notes in the remainder of this
+> section. The current work follows the 2025 status plan issued for GPT‑5
+> deliverables.
+
+*Sources.* All excitation now uses transparent / PCS-style sources exclusively.
+Compensation signals are pre-shaped on the CPU so that the injected energy
+stays quasi-constant over $10^5$ steps (target ripple < 0.5 dB). Hard or hybrid
+sources are deprecated because they violate the guard constraints described
+below.
+
+*Boundary data.* Runtime triangle searches have been removed. Instead we
+precompute a signed-distance field (SDF) as well as a directional index field
+(DIF) per lattice node. The SDF gives sub-cell offsets for spatially-aware
+interpolation, while the DIF encodes which impedance program (per face / edge /
+corner) should be pulled from the surface table. Both fields are generated on
+the CPU after the BVH build and uploaded once, eliminating the old
+`closest_triangle` scans inside the OpenCL kernels.
+
+*Safety / observability.* Every boundary record carries a guard tag. The wave
+update kernels treat any deviation from the expected guard as a fatal error and
+trip the existing NaN/Inf detectors immediately (fail-fast). This ensures that
+multi-band runs terminate on the first invalid coefficient instead of spending
+thousands of steps integrating corrupt state. Coefficients and filter memories
+are also clamped to $[0, 1]$ before dispatch as part of the PCS toolchain.
+
+*Memory layout.* Node attributes, boundary indices, and filter state are now
+stored in structure-of-arrays form, Morton-ordered along the primary update
+dimension. This keeps cache- and wavefront-friendly locality, and it matches
+the new SDF/DIF packing so that boundary lookups are pure index arithmetic.
+Future implementation work in this directory must keep the SoA/Morton layout
+in sync with the guard-tag scheme.
 
 ### Possible Methods
 

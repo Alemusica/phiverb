@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ISSUE=${ISSUE:-1}
+watch -n 3 "gh issue view $ISSUE --comments | tail -n 60"
+

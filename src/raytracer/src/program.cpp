@@ -76,7 +76,9 @@ kernel void init_reflections(global reflection* reflections) {
                                        (char)true,
                                        (char)0,
                                        (char)0,
-                                       (char)0};
+                                       (char)0,
+                                       0.0f,
+                                       0.0f};
 }
 
 kernel void reflections(global ray* rays,  //  ray
@@ -150,23 +152,24 @@ kernel void reflections(global ray* rays,  //  ray
                                      side,
                                      triangles,
                                      vertices,
-                                     closest_intersection.index);
+                                         closest_intersection.index);
 
-    //  find the scattering
-    const float z = rng[2 * thread + 0];
-    const float theta = rng[2 * thread + 1];
+    //  determine scattering behaviour using BRDF sampling
+    const float u_component = rng[3 * thread + 0];
+    const float u1 = rng[3 * thread + 1];
+    const float u2 = rng[3 * thread + 2];
     const surface s = surfaces[closest_triangle.surface];
-    const float scatter_prob = clamp01(mean(s.scattering));
+    const float scatter_prob = clamp(mean(s.scattering), 0.0f, 1.0f);
 
-    const float u_branch = clamp01(0.5f * (z + 1.0f));
-    const float u_phi =
-            clamp01((theta + (float)M_PI) / (2.0f * (float)M_PI));
-    const float u_mag = wrap_unit(u_branch * 0.723605f + 0.125f);
+    float3 scattering = specular;
+    float sample_pdf = 1.0f;
+    float cos_theta = fabs(dot(tnorm, specular));
+    const bool choose_diffuse = (scatter_prob > 0.0f && u_component < scatter_prob);
 
-    const bool choose_diffuse =
-            scatter_prob > 0.0f && u_branch < scatter_prob;
-    const float3 diffuse_dir = cosine_weighted_direction(tnorm, u_phi, u_mag);
-    const float3 scattering = choose_diffuse ? diffuse_dir : specular;
+    if (choose_diffuse) {
+        scattering = lambert_sample(tnorm, u1, u2, &cos_theta);
+        sample_pdf = fmax(lambert_pdf(cos_theta), 1e-6f);
+    }
 
     //  now we can populate the output
     reflections[thread] = (reflection){intersection_pt,
@@ -175,10 +178,18 @@ kernel void reflections(global ray* rays,  //  ray
                                        true,
                                        is_intersection,
                                        (char)choose_diffuse,
-                                       (char)0};
+                                       (char)0,
+                                       sample_pdf,
+                                       cos_theta};
+=======
+                                       choose_diffuse,
+                                       0,
+                                       sample_pdf,
+                                       cos_theta};
+>>>>>>> origin/rt/brdf-opencl-helpers
 
     //  find the next ray to trace
-    rays[thread] = (ray){intersection_pt, scattering};
+    rays[thread] = (ray){intersection_pt, normalize(outgoing_dir)};
 }
 
 )";

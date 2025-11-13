@@ -3,11 +3,15 @@
 #include "waveguide/bandpass_band.h"
 #include "waveguide/calibration.h"
 #include "waveguide/fitted_boundary.h"
+#include "waveguide/make_transparent.h"
+#include "waveguide/pcs.h"
 #include "waveguide/postprocessor/directional_receiver.h"
-#include "waveguide/preprocessor/hard_source.h"
+#include "waveguide/preprocessor/soft_source.h"
 #include "waveguide/simulation_parameters.h"
 #include "waveguide/waveguide.h"
 #include "waveguide/backend_selector.h"
+
+#include "utilities/aligned/vector.h"
 
 #include "core/callback_accumulator.h"
 #include "core/environment.h"
@@ -15,6 +19,7 @@
 
 #include "hrtf/multiband.h"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 
@@ -28,6 +33,64 @@ namespace wayverb {
 namespace waveguide {
 namespace detail {
 
+constexpr size_t kMaxPcsKernelLength = 1u << 15;
+constexpr double kPcsRadiusMeters = 0.05;
+constexpr double kPcsSphereMassKg = 0.025;
+constexpr double kPcsLowCutoffHz = 100.0;
+constexpr double kPcsLowQ = 0.7;
+constexpr float kTransparentGuardMagnitude = 1.0e6f;
+
+inline util::aligned::vector<float> make_pcs_transparent_signal(
+        size_t steps,
+        double acoustic_impedance,
+        double speed_of_sound,
+        double sample_rate,
+        double grid_spacing) {
+    if (steps == 0) {
+        return {};
+    }
+
+    const auto kernel_length = std::max<size_t>(
+            1u, std::min<size_t>(steps, kMaxPcsKernelLength));
+
+    auto pcs = design_pcs_source(kernel_length,
+                                 acoustic_impedance,
+                                 speed_of_sound,
+                                 sample_rate,
+                                 kPcsRadiusMeters,
+                                 kPcsSphereMassKg,
+                                 kPcsLowCutoffHz,
+                                 kPcsLowQ);
+
+    util::aligned::vector<float> raw(pcs.signal.size());
+    std::transform(pcs.signal.begin(),
+                   pcs.signal.end(),
+                   raw.begin(),
+                   [](double sample) { return static_cast<float>(sample); });
+
+    auto transparent = make_transparent(raw.data(), raw.data() + raw.size());
+
+    util::aligned::vector<float> signal;
+    signal.assign(transparent.begin(), transparent.end());
+    signal.resize(steps, 0.0f);
+
+    const auto calibration = static_cast<float>(
+            rectilinear_calibration_factor(grid_spacing, acoustic_impedance));
+
+    for (auto& sample : signal) {
+        if (!std::isfinite(sample)) {
+            sample = 0.0f;
+            continue;
+        }
+        const auto scaled = sample * calibration;
+        sample = std::clamp(scaled,
+                            -kTransparentGuardMagnitude,
+                            kTransparentGuardMagnitude);
+    }
+
+    return signal;
+}
+
 template <typename Callback>
 std::optional<band> canonical_impl(
         const core::compute_context& cc,
@@ -39,7 +102,7 @@ std::optional<band> canonical_impl(
         const std::atomic_bool& keep_going,
         Callback&& callback) {
     const auto sample_rate = compute_sample_rate(mesh.get_descriptor(),
-                                                 environment.speed_of_sound);
+                                                environment.speed_of_sound);
 
     const auto compute_mesh_index = [&](const auto& pt) {
         const auto ret = compute_index(mesh.get_descriptor(), pt);
@@ -53,16 +116,16 @@ std::optional<band> canonical_impl(
     };
 
     const auto ideal_steps = std::ceil(sample_rate * simulation_time);
+    const auto total_steps = static_cast<size_t>(ideal_steps);
 
-    const auto input = [&] {
-        auto raw = util::aligned::vector<float>(ideal_steps, 0.0f);
-        if (!raw.empty()) {
-            raw.front() = rectilinear_calibration_factor(
-                    mesh.get_descriptor().spacing,
-                    environment.acoustic_impedance);
-        }
-        return raw;
-    }();
+    auto input = make_pcs_transparent_signal(total_steps,
+                                             environment.acoustic_impedance,
+                                             environment.speed_of_sound,
+                                             sample_rate,
+                                             mesh.get_descriptor().spacing);
+
+    auto prep = preprocessor::make_soft_source(
+            compute_mesh_index(source), begin(input), end(input));
 
     auto output_accumulator =
             core::callback_accumulator<postprocessor::directional_receiver>{
@@ -71,18 +134,16 @@ std::optional<band> canonical_impl(
                     get_ambient_density(environment),
                     compute_mesh_index(receiver)};
 
-    const auto steps =
-            run(cc,
-                mesh,
-                preprocessor::make_hard_source(
-                        compute_mesh_index(source), begin(input), end(input)),
-                [&](auto& queue, const auto& buffer, auto step) {
-                    output_accumulator(queue, buffer, step);
-                    callback(queue, buffer, step, ideal_steps);
-                },
-                keep_going);
+    const auto steps = run(cc,
+                           mesh,
+                           prep,
+                           [&](auto& queue, const auto& buffer, auto step) {
+                               output_accumulator(queue, buffer, step);
+                               callback(queue, buffer, step, ideal_steps);
+                           },
+                           keep_going);
 
-    if (steps != ideal_steps) {
+    if (steps != total_steps) {
         return std::nullopt;
     }
 

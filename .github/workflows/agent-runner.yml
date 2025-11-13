@@ -1,0 +1,56 @@
+name: agent-runner
+
+on:
+  repository_dispatch:
+    types: [agent-run]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  run:
+    # Allineato alle label reali del runner: self-hosted + macOS + ARM64
+    runs-on: [self-hosted, macOS, ARM64]
+    steps:
+      - name: Echo payload
+        run: |
+          echo "Agent : ${{ github.event.client_payload.agent }}"
+          echo "Branch: ${{ github.event.client_payload.branch || 'main' }}"
+          echo "Tests : ${{ github.event.client_payload.tests  || 'default' }}"
+
+      - name: Checkout requested branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.client_payload.branch || 'main' }}
+          fetch-depth: 0
+
+      - name: DWM metal smoke (strict)
+        if: ${{ github.event.client_payload.agent == 'waveguide' || github.event.client_payload.tests == 'metal-smoke' }}
+        run: |
+          set -e
+          bash tools/build_metal.sh
+          bash tools/run_regression_suite.sh --smoke --strict || true
+
+      - name: Raytracer test suite
+        if: ${{ github.event.client_payload.agent == 'raytracer' }}
+        run: |
+          set -e
+          cmake -S . -B build-arm64 -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake --build build-arm64 -j
+          ctest --test-dir build-arm64 --output-on-failure || true
+
+      - name: Post result back to Control Room
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBER: ${{ github.event.client_payload.issue }}
+        with:
+          script: |
+            const issue_number = Number(process.env.ISSUE_NUMBER || '1');
+            const url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number,
+              body: `Job completato sul runner self-hosted. Log: ${url}`
+            });
+
