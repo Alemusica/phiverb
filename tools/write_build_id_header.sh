@@ -15,7 +15,7 @@ if command -v git >/dev/null 2>&1; then
     fi
 fi
 
-timestamp="$(date +%Y-%m-%dT%H:%M:%S%z)"
+timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 escape() {
     printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
