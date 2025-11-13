@@ -34,7 +34,7 @@ if(GIT_FOUND)
     )
 endif()
 
-string(TIMESTAMP WAYVERB_BUILD_TIMESTAMP "%Y-%m-%dT%H:%M:%S%z")
+string(TIMESTAMP WAYVERB_BUILD_TIMESTAMP UTC "%Y-%m-%dT%H:%M:%SZ")
 
 foreach(var WAYVERB_GIT_DESC WAYVERB_GIT_BRANCH WAYVERB_BUILD_TIMESTAMP)
     string(REPLACE "\"" "\\\"" ${var} "${${var}}")
