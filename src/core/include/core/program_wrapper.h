@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/cl/common.h"
+#include "core/cl/cl_check.h"
 
 #include <stdexcept>
 #include <string>
@@ -36,9 +37,13 @@ public:
         int error = CL_SUCCESS;
         auto kernel = cl::make_kernel<Ts...>(program, kernel_name, &error);
         if (error != CL_SUCCESS) {
-            throw std::runtime_error("Failed to create OpenCL kernel '" +
-                                     std::string{kernel_name} + "' (error " +
-                                     std::to_string(error) + ")");
+            // Use detailed error reporting
+            std::string call_str = std::string("cl::make_kernel(program, \"") + 
+                                   kernel_name + "\", &error)";
+            throw cl_exception(error, 
+                "[OpenCL Error] " + std::string(get_cl_error_string(error)) +
+                " (" + std::to_string(error) + ")\n" +
+                "  Failed to create kernel: " + kernel_name);
         }
         return kernel;
     }

@@ -4,6 +4,7 @@
 
 #include "core/cl/common.h"
 #include "core/cl/include.h"
+#include "core/cl/cl_error.h"
 #include "core/conversions.h"
 #include "core/exceptions.h"
 
@@ -237,7 +238,8 @@ size_t run(const core::compute_context& cc,
         if (err != CL_SUCCESS) {
             delete raw;
             std::fprintf(stderr,
-                         "[waveguide][trace] setCallback failed (%d) for %s\n",
+                         "[waveguide][trace] setCallback failed: %s (%d) for %s\n",
+                         core::get_cl_error_string(err),
                          err,
                          name);
         }
