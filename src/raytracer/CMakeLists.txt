@@ -4,8 +4,6 @@ file(GLOB_RECURSE private_headers "src/*.h")
 
 add_library(raytracer STATIC ${sources} ${public_headers} ${private_headers})
 
-add_dependencies(raytracer glm_external)
-
 target_include_directories(raytracer
     PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

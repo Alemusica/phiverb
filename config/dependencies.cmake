@@ -1,93 +1,60 @@
 # This is where we download, configure and build all the dependencies.
-# There's not a silver bullet here: every road leads to pain.
-# This is the road of least pain (with the worst metaphors).
+# Now using CPM (CMake Package Manager) for better dependency management.
+# CPM.cmake: https://github.com/cpm-cmake/CPM.cmake
 #
-# For each library, we ask it to build a static lib (where appropriate) and to
-# install into the build directory.
-# The advantage of this approach is that we can deal with cmake and autotools
-# builds in much the same way.
-# Also cmake can magically download stuff from nearly anywhere which is neat.
+# For dependencies that use autotools (fftw, sndfile, samplerate, itpp),
+# we still use ExternalProject_Add as they don't have CMake support.
 
 include(ExternalProject)
+include(${CMAKE_SOURCE_DIR}/cmake/CPM.cmake)
 find_package(Git REQUIRED)
 find_package(ZLIB REQUIRED)
 
-set(ZLIB_REAL_LIBRARY "${ZLIB_LIBRARY}")
-if(ZLIB_REAL_LIBRARY MATCHES "\\.tbd$")
-    string(REPLACE ".tbd" ".dylib" ZLIB_REAL_LIBRARY "${ZLIB_REAL_LIBRARY}")
-endif()
+# Set CPM cache directory
+set(CPM_SOURCE_CACHE "${CMAKE_BINARY_DIR}/.cpm-cache" CACHE PATH "CPM source cache directory")
 
-set(WAYVERB_PATCH_SCRIPT ${CMAKE_SOURCE_DIR}/config/apply_patch_if_needed.sh)
-set(WAYVERB_PATCH_ASSIMP_SCRIPT ${CMAKE_SOURCE_DIR}/scripts/patch_assimp.cmake)
-set(WAYVERB_PATCH_FFTW_DOCS_SCRIPT
-    ${CMAKE_SOURCE_DIR}/scripts/patch_fftw_docs.cmake)
-
+# ExternalProject settings for autotools-based dependencies
+set(WAYVERB_PATCH_FFTW_DOCS_SCRIPT ${CMAKE_SOURCE_DIR}/scripts/patch_fftw_docs.cmake)
 set(DEPENDENCY_INSTALL_PREFIX ${CMAKE_BINARY_DIR}/dependencies)
 set_directory_properties(PROPERTIES EP_PREFIX ${DEPENDENCY_INSTALL_PREFIX})
 set_property(DIRECTORY PROPERTY EP_BASE "${DEPENDENCY_INSTALL_PREFIX}")
 
-# Some dependencies depend on one-another - this ensures that we look for those
-# dependencies within the project, *before* looking in the normal system
-# location.
-set(CMAKE_MODULE_PATH ${DEPENDENCY_INSTALL_PREFIX} ${CMAKE_MODULE_PATH})
-
-set(GLOBAL_DEPENDENCY_CMAKE_FLAGS
-    "-DCMAKE_MODULE_PATH=${DEPENDENCY_INSTALL_PREFIX}"
-    "-DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}"
-    "-DCMAKE_POLICY_DEFAULT_CMP0048=NEW"
-    "-DCMAKE_POLICY_VERSION=3.16"
-    "-DCMAKE_POLICY_VERSION_MINIMUM=3.5")
-
 set(ENV_SETTINGS "MACOSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+set(CUSTOM_MAKE_COMMAND BUILD_COMMAND make ${ENV_SETTINGS})
 
-set(CUSTOM_MAKE_COMMAND
-    BUILD_COMMAND make ${ENV_SETTINGS} 
-)
+# Configure for macOS deployment
+if(APPLE)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET ${CMAKE_OSX_DEPLOYMENT_TARGET})
+endif()
 
 # glm ##########################################################################
+# Header-only OpenGL Mathematics library
 
-ExternalProject_Add(
-    glm_external
-    DOWNLOAD_COMMAND ${GIT_EXECUTABLE} clone --depth 1 --branch 0.9.8.1 https://github.com/g-truc/glm.git glm_external
-    CMAKE_ARGS ${GLOBAL_DEPENDENCY_CMAKE_FLAGS} -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR> 
+CPMAddPackage(
+    NAME glm
+    GITHUB_REPOSITORY g-truc/glm
+    GIT_TAG 0.9.8.5
+    OPTIONS
+        "GLM_TEST_ENABLE OFF"
 )
 
 # assimp #######################################################################
+# 3D model loading library
 
-ExternalProject_Add(
-    assimp_external
-    DOWNLOAD_COMMAND ${GIT_EXECUTABLE} clone --depth 1 --branch v3.3.1 https://github.com/assimp/assimp.git assimp_external
-    PATCH_COMMAND
-        ${CMAKE_COMMAND}
-        -DWAYVERB_SOURCE_DIR:PATH=<SOURCE_DIR>
-        -DWAYVERB_PATCH_FILE:PATH=${CMAKE_SOURCE_DIR}/config/fix_assimp.patch
-        -DWAYVERB_PATCH_SENTINEL:PATH=<SOURCE_DIR>/.wayverb_assimp_patch_applied
-        -DWAYVERB_GIT_EXECUTABLE:FILEPATH=${GIT_EXECUTABLE}
-        -P ${WAYVERB_PATCH_ASSIMP_SCRIPT}
-    CMAKE_ARGS ${GLOBAL_DEPENDENCY_CMAKE_FLAGS}
-               -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
-               -DASSIMP_BUILD_TESTS=OFF
-               -DASSIMP_BUILD_STATIC_LIB=ON
-               -DBUILD_SHARED_LIBS=OFF
-               -DASSIMP_BUILD_ZLIB=OFF
-               -DZLIB_USE_STATIC_LIBS=OFF
-               "-DZLIB_LIBRARY=${ZLIB_LIBRARY}"
-               "-DZLIB_INCLUDE_DIR=${ZLIB_INCLUDE_DIR}"
-               -DCMAKE_CXX_VISIBILITY_PRESET=hidden
-               -DCMAKE_VISIBILITY_INLINES_HIDDEN=ON
+CPMAddPackage(
+    NAME assimp
+    GITHUB_REPOSITORY assimp/assimp
+    GIT_TAG v5.4.3
+    OPTIONS
+        "ASSIMP_BUILD_TESTS OFF"
+        "ASSIMP_BUILD_ASSIMP_TOOLS OFF"
+        "ASSIMP_BUILD_SAMPLES OFF"
+        "ASSIMP_INSTALL OFF"
+        "ASSIMP_BUILD_ZLIB ON"
+        "ASSIMP_NO_EXPORT ON"
+        "BUILD_SHARED_LIBS OFF"
+        "ASSIMP_WARNINGS_AS_ERRORS OFF"
 )
-
-add_library(assimp UNKNOWN IMPORTED)
-add_dependencies(assimp assimp_external) 
-set_property(TARGET assimp PROPERTY IMPORTED_LOCATION ${DEPENDENCY_INSTALL_PREFIX}/lib/libassimp.a)
-
-add_custom_target(zlibstatic_stub ALL
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${DEPENDENCY_INSTALL_PREFIX}/lib
-    COMMAND ${CMAKE_COMMAND} -E remove -f "${DEPENDENCY_INSTALL_PREFIX}/lib/libzlibstatic.tbd"
-    COMMAND ${CMAKE_COMMAND} -E remove -f "${DEPENDENCY_INSTALL_PREFIX}/lib/libzlibstatic.dylib"
-    COMMAND ${CMAKE_COMMAND} -E create_symlink "${ZLIB_LIBRARY}" "${DEPENDENCY_INSTALL_PREFIX}/lib/libzlibstatic.tbd"
-    COMMAND ${CMAKE_COMMAND} -E create_symlink "${ZLIB_REAL_LIBRARY}" "${DEPENDENCY_INSTALL_PREFIX}/lib/libzlibstatic.dylib"
-    COMMENT "Providing compatibility shim for legacy zlibstatic consumers")
 
 # fftw3 float ##################################################################
 
@@ -137,24 +104,32 @@ add_dependencies(samplerate samplerate_external)
 set_property(TARGET samplerate PROPERTY IMPORTED_LOCATION ${DEPENDENCY_INSTALL_PREFIX}/lib/libsamplerate.a)
 
 # gtest ########################################################################
+# Google Test framework
 
-ExternalProject_Add(
-    gtest_external
-    DOWNLOAD_COMMAND ${GIT_EXECUTABLE} clone --depth 1 --branch release-1.8.0 https://github.com/google/googletest.git gtest_external
-    CMAKE_ARGS ${GLOBAL_DEPENDENCY_CMAKE_FLAGS} -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR> -Dgtest_hide_internal_symbols=on
+CPMAddPackage(
+    NAME googletest
+    GITHUB_REPOSITORY google/googletest
+    GIT_TAG v1.14.0
+    OPTIONS
+        "INSTALL_GTEST OFF"
+        "gtest_hide_internal_symbols ON"
 )
 
-add_library(gtest UNKNOWN IMPORTED)
-add_dependencies(gtest gtest_external) 
-set_property(TARGET gtest PROPERTY IMPORTED_LOCATION ${DEPENDENCY_INSTALL_PREFIX}/lib/libgtest.a)
+if(googletest_ADDED)
+    # Alias for compatibility
+    add_library(gtest ALIAS gtest_main)
+endif()
 
 # cereal #######################################################################
+# C++ serialization library (header-only)
 
-ExternalProject_Add(
-    cereal_external
-    DOWNLOAD_COMMAND ${GIT_EXECUTABLE} clone --depth 1 --branch v1.2.1 https://github.com/USCiLab/cereal.git cereal_external
-    PATCH_COMMAND ${WAYVERB_PATCH_SCRIPT} ${CMAKE_SOURCE_DIR}/config/fix_cereal_tuple.patch .wayverb_cereal_patch_applied ${GIT_EXECUTABLE}
-    CMAKE_ARGS ${GLOBAL_DEPENDENCY_CMAKE_FLAGS} -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR> -DJUST_INSTALL_CEREAL=ON
+CPMAddPackage(
+    NAME cereal
+    GITHUB_REPOSITORY USCiLab/cereal
+    GIT_TAG v1.3.2
+    OPTIONS
+        "JUST_INSTALL_CEREAL ON"
+        "SKIP_PORTABILITY_TEST ON"
 )
 
 # itpp #########################################################################
@@ -198,11 +173,22 @@ find_package(LAPACK REQUIRED)
 set(ITPP_LIBRARIES itpp fftw ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
 
 # opencl #######################################################################
+# OpenCL C++ headers (requires OpenCL C headers first)
 
-ExternalProject_Add(
-    opencl_cpp_external
-    DOWNLOAD_COMMAND ${GIT_EXECUTABLE} clone --depth 1 --branch v2.0.10 https://github.com/KhronosGroup/OpenCL-CLHPP.git opencl_cpp_external
-    CMAKE_ARGS ${GLOBAL_DEPENDENCY_CMAKE_FLAGS} -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>/include -DBUILD_DOCS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTS=OFF
+CPMAddPackage(
+    NAME OpenCL-Headers
+    GITHUB_REPOSITORY KhronosGroup/OpenCL-Headers
+    GIT_TAG v2023.12.14
+)
+
+CPMAddPackage(
+    NAME OpenCL-CLHPP
+    GITHUB_REPOSITORY KhronosGroup/OpenCL-CLHPP
+    GIT_TAG v2023.12.14
+    OPTIONS
+        "BUILD_DOCS OFF"
+        "BUILD_EXAMPLES OFF"
+        "BUILD_TESTING OFF"
 )
 
 find_package(OpenCL REQUIRED)
@@ -213,14 +199,8 @@ find_package(OpenCL REQUIRED)
 
 # modern_gl_utils ##############################################################
 
-ExternalProject_Add(
-    modern_gl_utils_external
-    DOWNLOAD_COMMAND ${GIT_EXECUTABLE} clone --depth 1 https://github.com/reuk/modern_gl_utils.git modern_gl_utils_external
-    CMAKE_ARGS ${GLOBAL_DEPENDENCY_CMAKE_FLAGS} -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
+CPMAddPackage(
+    NAME modern_gl_utils
+    GITHUB_REPOSITORY reuk/modern_gl_utils
+    GIT_TAG master
 )
-
-add_dependencies(modern_gl_utils_external glm_external)
-
-add_library(modern_gl_utils UNKNOWN IMPORTED)
-add_dependencies(modern_gl_utils modern_gl_utils_external)
-set_property(TARGET modern_gl_utils PROPERTY IMPORTED_LOCATION ${DEPENDENCY_INSTALL_PREFIX}/lib/libmodern_gl_utils.a)

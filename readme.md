@@ -95,12 +95,31 @@ You will need:
 - Mac OS 10.10 or newer
 - Really recent Clang with C++14 support and experimental C++17 headers
   (development used Apple LLVM 8)
-- CMake
+- CMake (3.16 or newer)
+
+### Dependency Management
+
+This project now uses **CPM.cmake** (CMake Package Manager) for most dependencies,
+which automatically downloads and builds required libraries. The following
+dependencies are managed by CPM:
+
+- glm (OpenGL Mathematics)
+- assimp (3D model loading)
+- googletest (testing framework)
+- cereal (serialization)
+- OpenCL C++ headers
+- modern_gl_utils (OpenGL utilities)
+
+Some dependencies that use autotools (fftw, sndfile, samplerate, itpp) are still
+managed via CMake's ExternalProject.
+
+### Build Instructions
 
 Open `wayverb/Builds/MacOS/wayverb.xcodeproj` and build from there. All
 dependencies should get downloaded and built automatically. **The initial build
-will be really slow**, due to downloading and compiling a lot of libraries.
-This is normal.
+will be really slow**, due to downloading and compiling libraries. This is
+normal. CPM caches dependencies in `build/.cpm-cache` to speed up subsequent
+builds.
 
 Unfortunately, some of the dependencies have their own dependencies. If
 building fails, you may also need to install the following:
