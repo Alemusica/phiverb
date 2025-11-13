@@ -40,7 +40,7 @@ Usare questi artefatti come reference prima di toccare ciascun cluster e aggiorn
 
 # Archeology — stato & indizi (living)
 
-**Ultima scansione:** <!--XREF-DATE-->2025-11-13 18:15:14<!--/XREF-DATE-->
+**Ultima scansione:** <!--XREF-DATE-->2025-11-13 22:39:51<!--/XREF-DATE-->
 
 ## Auto-XRef (TODO/commenti)
 <!-- BEGIN AUTO-XREF -->
@@ -48,7 +48,7 @@ Usare questi artefatti come reference prima di toccare ciascun cluster e aggiorn
 |---|---|
 | `src/raytracer/include/raytracer/pressure.h:67` | //  TODO add an abstraction point for image-source finding |
 | `src/raytracer/include/raytracer/pressure.h:70` | //  TODO analytic signal / hilbert function |
-| `src/raytracer/src/cl/brdf.cpp:89` | //  TODO we might need to adjust the magnitude to correct for not-radiating-in- |
+| `src/raytracer/src/cl/brdf.cpp:95` | //  TODO we might need to adjust the magnitude to correct for not-radiating-in- |
 | `src/waveguide/include/waveguide/pcs.h:72` | /// TODO find correct mass for sphere so that level correction still works |
 | `src/frequency_domain/include/frequency_domain/filter.h:36` | /// TODO this is going to be slow because it will do a whole bunch of |
 | `src/core/include/core/reverb_time.h:25` | //  TODO this is dumb because of the linear search. |
