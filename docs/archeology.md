@@ -40,7 +40,7 @@ Usare questi artefatti come reference prima di toccare ciascun cluster e aggiorn
 
 # Archeology — stato & indizi (living)
 
-**Ultima scansione:** <!--XREF-DATE-->2025-11-13 05:25:24<!--/XREF-DATE-->
+**Ultima scansione:** <!--XREF-DATE-->2025-11-13 05:26:51<!--/XREF-DATE-->
 
 ## Auto-XRef (TODO/commenti)
 <!-- BEGIN AUTO-XREF -->
