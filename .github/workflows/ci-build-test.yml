@@ -1,6 +1,11 @@
 name: CI
 on:
   pull_request:
+  push:
+    branches:
+      - main
+      - develop
+      - feature/metal-apple-silicon
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
