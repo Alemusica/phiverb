@@ -44,14 +44,16 @@ CPMAddPackage(
 CPMAddPackage(
     NAME assimp
     GITHUB_REPOSITORY assimp/assimp
-    GIT_TAG v5.3.1
+    GIT_TAG v5.4.3
     OPTIONS
         "ASSIMP_BUILD_TESTS OFF"
         "ASSIMP_BUILD_ASSIMP_TOOLS OFF"
         "ASSIMP_BUILD_SAMPLES OFF"
         "ASSIMP_INSTALL OFF"
-        "ASSIMP_BUILD_ZLIB OFF"
+        "ASSIMP_BUILD_ZLIB ON"
+        "ASSIMP_NO_EXPORT ON"
         "BUILD_SHARED_LIBS OFF"
+        "ASSIMP_WARNINGS_AS_ERRORS OFF"
 )
 
 # fftw3 float ##################################################################
@@ -171,7 +173,13 @@ find_package(LAPACK REQUIRED)
 set(ITPP_LIBRARIES itpp fftw ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
 
 # opencl #######################################################################
-# OpenCL C++ headers
+# OpenCL C++ headers (requires OpenCL C headers first)
+
+CPMAddPackage(
+    NAME OpenCL-Headers
+    GITHUB_REPOSITORY KhronosGroup/OpenCL-Headers
+    GIT_TAG v2023.12.14
+)
 
 CPMAddPackage(
     NAME OpenCL-CLHPP
