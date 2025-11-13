@@ -11,6 +11,10 @@ set(ONLY_BUILD_DOCS false CACHE BOOL "skip configuring the build and just build 
 
 find_package(Git QUIET)
 
+if(WAYVERB_ENABLE_METAL AND APPLE)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+endif()
+
 set(WAYVERB_GIT_DESC "unknown")
 set(WAYVERB_GIT_BRANCH "unknown")
 if(GIT_FOUND)

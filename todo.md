@@ -21,6 +21,9 @@ Investigate multi-band waveguide NaNs (boundary coeffs, trace failing nodes).
 Fix “Tried to read non-existant node” on sanitized fractal mesh (voxel bounds / neighbor lookup).
 
 Finish Metal waveguide execution path (current scaffold still falls back to OpenCL; rendering remains too slow).
+    ✅ FIXED (2025-11-12): Metal header inclusion issue resolved by embedding kernels at build time.
+    Metal backend should now work when built with -DWAYVERB_ENABLE_METAL=ON.
+    Remaining work: performance tuning and comparative benchmarking vs OpenCL.
 
 ### app stuff
 

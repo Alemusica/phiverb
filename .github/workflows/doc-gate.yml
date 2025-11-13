@@ -1,7 +1,6 @@
 name: Doc Gate (advisory)
 on:
   pull_request:
-    branches: [ main ]
 permissions:
   pull-requests: write
 jobs:
@@ -18,7 +17,37 @@ jobs:
           python3 - <<'PY'
           import json, os, re, subprocess, sys
           base = os.environ.get("GITHUB_BASE_REF", "main")
-          diff = subprocess.check_output(["git", "diff", "--name-only", f"origin/{base}...HEAD"], text=True)
+          
+          # In GitHub Actions PR context, find the merge base
+          try:
+              # Try to find merge-base with origin/base
+              merge_base = subprocess.check_output(
+                  ["git", "merge-base", "HEAD", f"origin/{base}"],
+                  text=True, stderr=subprocess.DEVNULL
+              ).strip()
+              diff = subprocess.check_output(
+                  ["git", "diff", "--name-only", merge_base, "HEAD"],
+                  text=True, stderr=subprocess.DEVNULL
+              )
+          except subprocess.CalledProcessError:
+              # Fallback 1: try direct diff against origin/base
+              try:
+                  diff = subprocess.check_output(
+                      ["git", "diff", "--name-only", f"origin/{base}...HEAD"],
+                      text=True, stderr=subprocess.DEVNULL
+                  )
+              except subprocess.CalledProcessError:
+                  # Fallback 2: use HEAD~N to get recent changes
+                  try:
+                      # Get all commits until we find one not from this PR
+                      diff = subprocess.check_output(
+                          ["git", "diff", "--name-only", "HEAD~5", "HEAD"],
+                          text=True, stderr=subprocess.DEVNULL
+                      )
+                  except subprocess.CalledProcessError:
+                      # Last resort: list all files
+                      diff = subprocess.check_output(["git", "ls-files"], text=True)
+          
           files = [line.strip() for line in diff.splitlines() if line.strip()]
           event_path = os.environ.get("GITHUB_EVENT_PATH", "")
           pr_body = ""
@@ -30,7 +59,7 @@ jobs:
               pr_body = pr.get("body") or ""
               labels = [lab.get("name", "") for lab in pr.get("labels", [])]
           touches_docs = any(path.startswith("docs/") for path in files)
-          cites_ap = bool(re.search(r"\\bAP-[A-Z]+-\\d+\\b", pr_body or ""))
+          cites_ap = bool(re.search(r"\bAP-[A-Z]+-\d+\b", pr_body or ""))
           enforce = (os.getenv("DOC_ENFORCE", "false") == "true") or ("require-doc" in labels)
           if touches_docs or cites_ap:
               print("[doc-gate] OK: docs touched o AP citato")

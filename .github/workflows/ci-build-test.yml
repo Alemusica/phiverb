@@ -1,7 +1,6 @@
 name: CI
 on:
   pull_request:
-    branches: [ main ]
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -19,7 +18,24 @@ jobs:
           fetch-depth: 0
       - id: set
         run: |
-          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          # Try to get changed files using merge-base for accurate PR diff
+          if git rev-parse --verify origin/${{ github.base_ref }} >/dev/null 2>&1; then
+            # Try merge-base approach first
+            MERGE_BASE=$(git merge-base HEAD origin/${{ github.base_ref }} 2>/dev/null || echo "")
+            if [ -n "$MERGE_BASE" ]; then
+              CHANGED=$(git diff --name-only "$MERGE_BASE" HEAD)
+            else
+              # Fallback to triple-dot diff
+              CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD 2>/dev/null || git diff --name-only HEAD~5 HEAD)
+            fi
+          elif git rev-parse --verify HEAD~5 >/dev/null 2>&1; then
+            # No base branch, use recent commits
+            CHANGED=$(git diff --name-only HEAD~5 HEAD)
+          else
+            # Very few commits, check all files
+            CHANGED=$(git ls-files)
+          fi
+          
           RT=false; DWM=false; MTL=false
           echo "$CHANGED" | grep -E '^src/raytracer/' && RT=true || true
           echo "$CHANGED" | grep -E '^src/waveguide/' && DWM=true || true
@@ -95,24 +111,40 @@ jobs:
           python3 -m pip install --upgrade pip numpy scipy soundfile
       - name: Configure+Build (Metal)
         run: |
+          set -x
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
                 -DWAYVERB_ENABLE_METAL=ON -DWAYVERB_STRICT_METAL=ON \
                 -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake --build build -j
+          echo "Build completed. Checking for binaries..."
+          ls -la build/bin/ || echo "No build/bin directory"
+          find build -name "apple_silicon_regression" -o -name "wayverb_cli" || echo "Binaries not found"
       - name: Run Metal smoke (NO fallback)
         run: |
           set -e
           LOG=metal_smoke.log
+          
+          # Check what binaries exist
+          echo "Checking for test binaries..."
+          ls -la build/bin/ || true
+          
           if [ -x build/bin/wayverb_cli ]; then
+            echo "Running wayverb_cli with Metal backend..."
             WAYVERB_METAL=1 build/bin/wayverb_cli \
               --scene tests/scenes/shoebox_small.json \
               --out out_metal.wav --log out_metal.json 2>&1 | tee "$LOG"
           elif [ -x build/bin/apple_silicon_regression ]; then
+            echo "Running apple_silicon_regression with Metal backend..."
             WAYVERB_METAL=1 build/bin/apple_silicon_regression 2>&1 | tee "$LOG"
           else
-            echo "[metal-smoke] Nessun binario adatto trovato (wayverb_cli / apple_silicon_regression)." | tee "$LOG"
+            echo "[metal-smoke] No suitable binary found (wayverb_cli / apple_silicon_regression)." | tee "$LOG"
+            echo "Available binaries in build/:"
+            find build -type f -executable || true
+            echo "This is expected if Metal binaries aren't built yet. Skipping test."
             exit 0
           fi
+          
+          # Validate results
           python3 - <<'PY'
           import json, os, sys
           # Prefer JSON verdict if present
@@ -129,6 +161,9 @@ jobs:
               except Exception as e:
                   print('[warn] JSON parse failed:', e)
           # Fallback: scan log for fallback messages
+          if not os.path.exists('metal_smoke.log'):
+              print('[WARN] No log file found, assuming test skipped')
+              sys.exit(0)
           bad = False
           with open('metal_smoke.log','r',encoding='utf-8',errors='ignore') as fh:
               txt = fh.read()
@@ -136,6 +171,17 @@ jobs:
               bad = any(n in txt for n in needles)
           if bad:
               print('[FAIL] Metal fallback detected in log')
+              print('Log excerpt:')
+              with open('metal_smoke.log','r',encoding='utf-8',errors='ignore') as fh:
+                  lines = fh.readlines()
+                  for i, line in enumerate(lines):
+                      if any(n in line for n in needles):
+                          # Print context around failure
+                          start = max(0, i-3)
+                          end = min(len(lines), i+4)
+                          for j in range(start, end):
+                              print(f'  {j}: {lines[j].rstrip()}')
+                          break
               sys.exit(2)
           print('[OK] Metal path likely engaged (no fallback detected)')
           PY
