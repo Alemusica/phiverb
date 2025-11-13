@@ -1,59 +1,52 @@
-.DS_Store
-build
-lint
-xcproj
-xc
-Testing
-reference
-*/output/
-demo/impulses
-demo/logfile.txt
-local_docs
-docs/.*
-docs_source/.*
-
-local_hosted_docs
-tmp
-docs_source/tmp
-docs_source/_site
-docs_source/images/*.pdf
-
-.vagrant
-.sass-cache
-
-*.db
-
-config/travisci_rsa
-
-apps/wayverb/Builds/MacOSX/Build
-apps/impulse/Builds/MacOSX/Build
-
+*.DS_Store
+*.swo
 *.swp
-
-*.wav
-*.aiff
-*~.skp
-*.log
-*.aux
-
-compile_commands.json
-build_log.txt
+*~
+.*.kate-swp
 # Build / artefatti
 build*/
 build-*/
-_out*/
-_out/
-_work/
-*.o
-*.obj
-*.a
-*.dylib
-*.so
-*.dll
-*.metallib
-*.air
+cmake-build-*/
+Debug/
+Release/
+xcode_build/
+bin/*.dSYM/
+wayverb.app/
+*.app/
+*.xcodeproj/xcuserdata/
+*.vcxproj.user
+# Juce
+JuceLibraryCode/
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+_deps/
+# Doxygen
+docs/doxygen/
+# Librerie esterne
+Spatial_Audio_Framework/
+dependencies/
+# Dipendenze di terze parti
+extern/
+# Logs & diagnostica
+logs/
 *.log
-.DS_Store
+__pycache__/
+# Geometry / scene / risultati
+*.obj.REMOVED*
+*.wav
+*.aiff
+*.json.tmp
+geometrie_wayverb/*.obj.REMOVED*
+# Test output
+test_output/
+# Temp
+tmp/
+temp/
+_work/
 # Xcode / IDE
 *.xcworkspace/
 *.xcodeproj/*
@@ -65,3 +58,5 @@ __pycache__/
 *.pyc
 *.pyo
 wayverb/Source/build_id_override.h
+# CPM cache
+.cpm/

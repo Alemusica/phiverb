@@ -16,8 +16,6 @@ add_definitions(-DMAT_PATH_BAD_BOX="${CMAKE_SOURCE_DIR}/demo/assets/materials/da
 
 add_executable(core_tests ${sources})
 
-add_dependencies(core_tests cereal_external)
-
 target_link_libraries(core_tests core gtest)
 
 add_test(NAME core_tests COMMAND core_tests)
