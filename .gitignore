@@ -64,3 +64,5 @@ _work/
 __pycache__/
 *.pyc
 *.pyo
+# CPM cache
+.cpm-cache/
