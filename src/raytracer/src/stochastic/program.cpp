@@ -88,24 +88,41 @@ kernel void stochastic(const global reflection* reflections,
     const bands_type reflectance =
             absorption_to_energy_reflectance(reflective_surface.absorption);
 
+    // Get incoming energy from path accumulators
     const bands_type throughput = stochastic_path[thread].throughput;
     const bands_type deterministic = stochastic_path[thread].deterministic;
     const bands_type outgoing_throughput = throughput * reflectance;
     const bands_type outgoing_specular = deterministic * reflectance;
 
+    // Scattering probabilities and sample info
     const float scatter_probability = reflections[thread].scatter_probability;
     const bool sampled_diffuse = reflections[thread].sampled_diffuse;
     const float diffuse_prob = fmax(scatter_probability, 1.0e-4f);
     const float specular_prob = fmax(1.0f - scatter_probability, 1.0e-4f);
 
-    const bands_type diffuse_throughput =
+    // Split reflected energy into diffuse and specular components
+    const bands_type diffuse_component =
             scattered(outgoing_throughput, reflective_surface.scattering);
-    const bands_type specular_throughput =
+    const bands_type specular_component =
             specular(outgoing_throughput, reflective_surface.scattering);
     const bands_type rain_energy =
             scattered(outgoing_specular, reflective_surface.scattering);
     const bands_type specular_chain =
             specular(outgoing_specular, reflective_surface.scattering);
+
+    // Calculate throughput for path continuation with BRDF weighting for diffuse samples
+    bands_type diffuse_throughput;
+    if (sampled_diffuse) {
+        const float cos_theta = fmax(reflections[thread].cos_theta, 0.0f);
+        const float sample_pdf = fmax(reflections[thread].sample_pdf, 1e-6f);
+        const bands_type diffuse_brdf =
+                reflectance * reflective_surface.scattering * (1.0f / M_PI_F);
+        diffuse_throughput = throughput * diffuse_brdf * (cos_theta / sample_pdf);
+    } else {
+        diffuse_throughput = diffuse_component;
+    }
+    const bands_type specular_throughput = specular_component;
+
 
     const float3 last_position = stochastic_path[thread].position;
     const float3 this_position = reflections[thread].position;
@@ -129,7 +146,8 @@ kernel void stochastic(const global reflection* reflections,
     //  compute output
 
     //  stochastic output (diffuse rain per Schroeder 5.20)
-    if (reflections[thread].receiver_visible) {
+    //  Only output when receiver is visible AND path was sampled diffusely
+    if (reflections[thread].receiver_visible && sampled_diffuse) {
         const float3 to_receiver = receiver - this_position;
         const float to_receiver_distance = length(to_receiver);
         const float total_distance = this_distance + to_receiver_distance;
@@ -152,6 +170,7 @@ kernel void stochastic(const global reflection* reflections,
                 receiver_radius / max(receiver_radius, to_receiver_distance);
         const float angle_correction = 1 - sqrt(1 - sin_y * sin_y);
 
+        // Apply distance attenuation for diffuse rain
         const float inv_distance_sq =
                 1.0f / fmax(to_receiver_distance * to_receiver_distance,
                             1.0e-6f);

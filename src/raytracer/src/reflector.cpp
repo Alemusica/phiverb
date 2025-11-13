@@ -11,11 +11,13 @@ namespace raytracer {
 util::aligned::vector<cl_float> reflector::generate_direction_rng(
         size_t num) {
     util::aligned::vector<cl_float> ret;
-    ret.reserve(2 * num);
+    ret.reserve(3 * num);
+    std::uniform_real_distribution<float> distribution{0.0f, 1.0f};
+    
     for (auto i = 0ul; i != num; ++i) {
-        const core::direction_rng rng(rng_engine_);
-        ret.emplace_back(rng.get_z());
-        ret.emplace_back(rng.get_theta());
+        ret.emplace_back(distribution(rng_engine_));
+        ret.emplace_back(distribution(rng_engine_));
+        ret.emplace_back(distribution(rng_engine_));
     }
     return ret;
 }

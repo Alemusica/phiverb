@@ -44,6 +44,17 @@ tracing, in which each ray carries separate red, green, and blue components.
 These components are modified independently, depending on the colour of the
 reflective surface.
 
+### 2025 status / design targets
+
+The ray-tracing stack now targets the following hard requirements:
+
+- **Energy-preserving BRDF sampling.** Diffuse lobes must expose an explicit PDF and update throughput using the PBRT convention `β ← β · f(ω_i→ω_o) · cosθ / pdf`, ensuring the Lambertian integral over the hemisphere returns `(1-α_b)` for every band.
+- **Mandatory diffuse rain emission.** Whenever a bounce samples the diffuse lobe, the rain source is spawned immediately and injects exactly `(1-α_b)·s_b` toward any visible receiver. Skipping or averaging these sources is not permitted.
+- **ISM ↔ PT parity via MIS.** The stochastic tracer is balance-heuristic MIS-combined with a Borish ISM solution through 4th order. On the shoebox regression scene the two estimators must match to ±1 sample in ToA and ±0.5 dB in amplitude for purely specular surfaces.
+- **Hard diagnostics, no silent fallbacks.** Kernels instrumented with `finite_or_zero(...)` accumulate `nanCount` and abort immediately if non-finite values appear; do not zero-out problematic rays or continue silently.
+
+Reference this section in any PR that modifies the ray tracer. Treat the legacy paragraphs below as historical background only.
+
 By definition, image-source models find only specular reflections (i.e. image
 sources), so scattering is not implemented in these models.  Scattering can be
 implemented in ray tracers, but there is no consensus on the optimum method.

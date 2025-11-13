@@ -39,3 +39,17 @@ index 24ab06b..c7dfca5 100644
  #        define fdopen(fd,mode) NULL /* No fdopen() */
  #      endif
  #    endif
+
+diff --git a/contrib/zlib/CMakeLists.txt b/contrib/zlib/CMakeLists.txt
+index 3fa3dcf..b1e83f8 100644
+--- a/contrib/zlib/CMakeLists.txt
++++ b/contrib/zlib/CMakeLists.txt
+@@ -6,7 +6,7 @@ set(CMAKE_ALLOW_LOOSE_LOOP_CONSTRUCTS ON)
+ # See http://www.cmake.org/cmake/help/v3.0/policy/CMP0048.html
+ cmake_policy(PUSH)
+ if(CMAKE_MAJOR_VERSION GREATER 2)
+-	cmake_policy(SET CMP0048 OLD)
++	cmake_policy(SET CMP0048 NEW)
+ endif()
+ project(zlib C)
+ cmake_policy(POP)

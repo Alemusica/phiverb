@@ -108,6 +108,8 @@ typedef struct {
     char receiver_visible;
     char sampled_diffuse;
     char padding;
+    float sample_pdf;
+    float cos_theta;
 } reflection;
 )";
 };

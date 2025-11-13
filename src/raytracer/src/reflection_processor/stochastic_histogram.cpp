@@ -11,11 +11,13 @@ make_stochastic_histogram::make_stochastic_histogram(
         size_t total_rays,
         size_t max_image_source_order,
         float receiver_radius,
-        float histogram_sample_rate)
+        float histogram_sample_rate,
+        float mis_delta_pdf)
         : total_rays_{total_rays}
         , max_image_source_order_{max_image_source_order}
         , receiver_radius_{receiver_radius}
-        , histogram_sample_rate_{histogram_sample_rate} {}
+        , histogram_sample_rate_{histogram_sample_rate}
+        , mis_delta_pdf_{mis_delta_pdf} {}
 
 stochastic_processor<stochastic::energy_histogram>
 make_stochastic_histogram::get_processor(
@@ -48,7 +50,8 @@ make_stochastic_histogram::get_processor(
             max_image_source_order_,
             receiver_radius_,
             histogram_sample_rate_,
-            has_scatter};
+            has_scatter,
+            mis_delta_pdf_};
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -57,11 +60,13 @@ make_directional_histogram::make_directional_histogram(
         size_t total_rays,
         size_t max_image_source_order,
         float receiver_radius,
-        float histogram_sample_rate)
+        float histogram_sample_rate,
+        float mis_delta_pdf)
         : total_rays_{total_rays}
         , max_image_source_order_{max_image_source_order}
         , receiver_radius_{receiver_radius}
-        , histogram_sample_rate_{histogram_sample_rate} {}
+        , histogram_sample_rate_{histogram_sample_rate}
+        , mis_delta_pdf_{mis_delta_pdf} {}
 
 stochastic_processor<stochastic::directional_energy_histogram<20, 9>>
 make_directional_histogram::get_processor(
@@ -94,7 +99,8 @@ make_directional_histogram::get_processor(
             max_image_source_order_,
             receiver_radius_,
             histogram_sample_rate_,
-            has_scatter};
+            has_scatter,
+            mis_delta_pdf_};
 }
 
 }  // namespace reflection_processor

@@ -1,8 +1,10 @@
 #include "raytracer/reflection_processor/image_source.h"
+#include "raytracer/image_source/fast_pressure_calculator.h"
 #include "raytracer/image_source/get_direct.h"
-#include "raytracer/image_source/postprocess_branches.h"
 
 #include "core/pressure_intensity.h"
+
+#include <iterator>
 
 namespace wayverb {
 namespace raytracer {
@@ -22,12 +24,19 @@ image_source_processor::image_source_processor(
         const core::voxelised_scene_data<cl_float3,
                                          core::surface<core::simulation_bands>>&
                 voxelised,
-        size_t max_order)
+        size_t max_order,
+        size_t total_rays,
+        float mis_delta_pdf)
         : source_{source}
         , receiver_{receiver}
         , environment_{environment}
         , voxelised_{voxelised}
-        , max_order_{max_order} {}
+        , max_order_{max_order}
+        , total_rays_{total_rays} {
+    const auto weights = compute_mis_weights(total_rays_, mis_delta_pdf);
+    mis_image_source_weight_ = weights.image_source;
+    mis_enabled_ = total_rays_ != 0;
+}
 
 image_source_group_processor image_source_processor::get_group_processor(
         size_t num_directions) const {
@@ -42,20 +51,35 @@ void image_source_processor::accumulate(
 }
 
 util::aligned::vector<impulse<8>> image_source_processor::get_results() const {
-    //  Fetch the image source results.
-    auto ret = raytracer::image_source::postprocess_branches(
-            begin(tree_.get_branches()),
-            end(tree_.get_branches()),
-            source_,
+    util::aligned::vector<impulse<8>> ret;
+
+    const auto calculator = image_source::make_fast_pressure_calculator(
+            begin(voxelised_.get_scene_data().get_surfaces()),
+            end(voxelised_.get_scene_data().get_surfaces()),
             receiver_,
-            voxelised_,
             false);
+
+    const auto callback = [&](const auto& image_source_position,
+                              const auto begin,
+                              const auto end) {
+        auto impulse = calculator(image_source_position, begin, end);
+        const auto order = static_cast<size_t>(std::distance(begin, end));
+        impulse.volume *= mis_weight_for_order(order);
+        ret.emplace_back(impulse);
+    };
+
+    for (const auto& branch : tree_.get_branches()) {
+        image_source::find_valid_paths(
+                branch, source_, receiver_, voxelised_, callback);
+    }
 
     //  Add the line-of-sight contribution, which isn't directly detected by
     //  the image-source machinery.
     using namespace image_source;
     if (const auto direct = get_direct(source_, receiver_, voxelised_)) {
-        ret.emplace_back(*direct);
+        auto weighted = *direct;
+        weighted.volume *= mis_weight_for_order(0);
+        ret.emplace_back(weighted);
     }
 
     //  Correct for distance travelled.
@@ -69,8 +93,12 @@ util::aligned::vector<impulse<8>> image_source_processor::get_results() const {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-make_image_source::make_image_source(size_t max_order)
-        : max_order_{max_order} {}
+make_image_source::make_image_source(size_t max_order,
+                                     size_t total_rays,
+                                     float mis_delta_pdf)
+        : max_order_{max_order}
+        , total_rays_{total_rays}
+        , mis_delta_pdf_{mis_delta_pdf} {}
 
 image_source_processor make_image_source::get_processor(
         const core::compute_context& /*cc*/,
@@ -80,7 +108,23 @@ image_source_processor make_image_source::get_processor(
         const core::voxelised_scene_data<cl_float3,
                                          core::surface<core::simulation_bands>>&
                 voxelised) const {
-    return {source, receiver, environment, voxelised, max_order_};
+    return {source,
+            receiver,
+            environment,
+            voxelised,
+            max_order_,
+            total_rays_,
+            mis_delta_pdf_};
+}
+
+float image_source_processor::mis_weight_for_order(size_t order) const {
+    if (!mis_enabled_) {
+        return 1.0f;
+    }
+    if (order <= max_order_) {
+        return mis_image_source_weight_;
+    }
+    return 1.0f;
 }
 
 }  // namespace reflection_processor
