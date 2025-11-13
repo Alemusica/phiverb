@@ -13,6 +13,8 @@
 namespace wayverb {
 namespace waveguide {
 
+struct precomputed_boundary_state;
+
 constexpr bool is_boundary(cl_int i) {
     return !(i & id_reentrant || i & id_inside);
 }
@@ -43,7 +45,8 @@ boundary_index_data compute_boundary_index_data(
         const cl::Device& device,
         const core::scene_buffers& buffers,
         const mesh_descriptor& descriptor,
-        util::aligned::vector<condensed_node>& nodes);
+        util::aligned::vector<condensed_node>& nodes,
+        const precomputed_boundary_state* precomputed = nullptr);
 
 }  // namespace waveguide
 }  // namespace wayverb

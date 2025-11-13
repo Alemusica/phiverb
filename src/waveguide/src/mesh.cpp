@@ -1,5 +1,6 @@
 #include "waveguide/mesh.h"
 #include "waveguide/boundary_adjust.h"
+#include "waveguide/boundary_layout.h"
 #include "waveguide/config.h"
 #include "waveguide/fitted_boundary.h"
 #include "waveguide/mesh_setup_program.h"
@@ -127,58 +128,62 @@ mesh compute_mesh(
     //  IMPORTANT
     //  compute_boundary_index_data mutates the nodes array, so it must
     //  be run before condensing the nodes.
-    auto boundary_data =
+    auto boundary_indices =
             compute_boundary_index_data(cc.device, buffers, desc, nodes);
 
-    auto v = vectors{
-            std::move(nodes),
-            util::map_to_vector(
-                    begin(voxelised.get_scene_data().get_surfaces()),
-                    end(voxelised.get_scene_data().get_surfaces()),
-                    [&](const auto& surface) {
-                        const auto make_identity_coeffs = [] {
-                            coefficients_canonical identity{};
-                            identity.b[0] = static_cast<filt_real>(1);
-                            identity.a[0] = static_cast<filt_real>(1);
-                            return identity;
-                        };
+    auto coefficients = util::map_to_vector(
+            begin(voxelised.get_scene_data().get_surfaces()),
+            end(voxelised.get_scene_data().get_surfaces()),
+            [&](const auto& surface) {
+                const auto make_identity_coeffs = [] {
+                    coefficients_canonical identity{};
+                    identity.b[0] = static_cast<filt_real>(1);
+                    identity.a[0] = static_cast<filt_real>(1);
+                    return identity;
+                };
 
-                        if (force_identity_coeffs) {
-                            return make_identity_coeffs();
+                if (force_identity_coeffs) {
+                    return make_identity_coeffs();
+                }
+
+                auto coeffs = to_impedance_coefficients(
+                        compute_reflectance_filter_coefficients(
+                                surface.absorption.s,
+                                1 / config::time_step(speed_of_sound,
+                                                      mesh_spacing)));
+
+                const auto sanitize = [](auto& coeff_array) {
+                    for (auto& coeff : coeff_array) {
+                        if (!std::isfinite(static_cast<double>(coeff))) {
+                            coeff = static_cast<filt_real>(0);
                         }
+                    }
+                };
 
-                        auto coeffs = to_impedance_coefficients(
-                                compute_reflectance_filter_coefficients(
-                                        surface.absorption.s,
-                                        1 / config::time_step(speed_of_sound,
-                                                              mesh_spacing)));
+                sanitize(coeffs.b);
+                sanitize(coeffs.a);
 
-                        const auto sanitize = [](auto& coeff_array) {
-                            for (auto& coeff : coeff_array) {
-                                if (!std::isfinite(static_cast<double>(coeff))) {
-                                    coeff = static_cast<filt_real>(0);
-                                }
-                            }
-                        };
+                const auto average_absorption = [&] {
+                    double sum = 0.0;
+                    for (const auto value : surface.absorption.s) {
+                        sum += value;
+                    }
+                    return sum / 8.0;
+                }();
 
-                        sanitize(coeffs.b);
-                        sanitize(coeffs.a);
+                if (!is_stable(coeffs.a)) {
+                    coeffs = make_identity_coeffs();
+                }
 
-                        const auto average_absorption = [&] {
-                            double sum = 0.0;
-                            for (const auto value : surface.absorption.s) {
-                                sum += value;
-                            }
-                            return sum / 8.0;
-                        }();
+                return coeffs;
+            });
 
-                        if (!is_stable(coeffs.a)) {
-                            coeffs = make_identity_coeffs();
-                        }
+    auto boundary_layout = build_boundary_layout(
+            desc, nodes, boundary_indices, coefficients, voxelised);
 
-                        return coeffs;
-                    }),
-            std::move(boundary_data)};
+    auto v = vectors{std::move(nodes),
+                     std::move(coefficients),
+                     std::move(boundary_layout)};
 
     return {desc, std::move(v)};
 }

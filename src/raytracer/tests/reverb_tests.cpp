@@ -1,4 +1,5 @@
 #include "raytracer/postprocess.h"
+#include "raytracer/image_source/postprocess.h"
 #include "raytracer/stochastic/postprocess.h"
 
 #include "core/attenuator/null.h"
@@ -24,14 +25,71 @@ struct shoebox_scene final {
     glm::vec3 min{0.0f};
     glm::vec3 max;
     double absorption;
+    double scattering{0.0};
 };
 
 auto build_scene(const shoebox_scene& box) {
     const geo::box gbox{box.min, box.max};
     const auto surface = make_surface<simulation_bands>(
-            static_cast<float>(box.absorption), 0.0f);
+            static_cast<float>(box.absorption),
+            static_cast<float>(box.scattering));
     const auto scene = geo::get_scene_data(gbox, surface);
     return make_voxelised_scene_data(scene, 5, 0.1f);
+}
+
+double box_volume(const shoebox_scene& box) {
+    return static_cast<double>((box.max.x - box.min.x) *
+                               (box.max.y - box.min.y) *
+                               (box.max.z - box.min.z));
+}
+
+double band_average(const core::bands_type& v) {
+    double sum = 0.0;
+    for (size_t i = 0; i < simulation_bands; ++i) {
+        sum += std::fabs(v.s[i]);
+    }
+    return sum / simulation_bands;
+}
+
+template <typename Histogram>
+struct simulation_fixture final {
+    raytracer::simulation_results<Histogram> aural;
+    double room_volume;
+    core::environment env;
+};
+
+auto run_simulation(const shoebox_scene& box,
+                    const glm::vec3& source,
+                    const glm::vec3& receiver,
+                    std::uint64_t seed,
+                    std::optional<size_t> max_image_order = std::nullopt) {
+    const compute_context cc{};
+    const auto voxelised = build_scene(box);
+    const environment env{};
+    std::atomic_bool keep_going{true};
+
+    raytracer::simulation_parameters params{};
+    params.rays = 1 << 14;
+    params.maximum_image_source_order = max_image_order.value_or(4);
+    params.receiver_radius = 0.1;
+    params.histogram_sample_rate = 2000.0;
+    params.rng_seed = seed;
+
+    auto canonical = raytracer::canonical(cc,
+                                          voxelised,
+                                          source,
+                                          receiver,
+                                          env,
+                                          params,
+                                          0,
+                                          keep_going,
+                                          [](auto, auto) {});
+    EXPECT_TRUE(canonical);
+    using histogram_t =
+            std::decay_t<decltype(canonical->aural.stochastic)>;
+    return simulation_fixture<histogram_t>{std::move(canonical->aural),
+                                           box_volume(box),
+                                           env};
 }
 
 double sabine_rt(double volume, double surface_area, double absorption) {
@@ -47,42 +105,17 @@ std::vector<float> render_ir(const shoebox_scene& box,
                              const glm::vec3& source,
                              const glm::vec3& receiver,
                              double sample_rate,
-                             std::uint64_t seed) {
-    const compute_context cc{};
-    const auto voxelised = build_scene(box);
-    const environment env{};
-    std::atomic_bool keep_going{true};
-
-    raytracer::simulation_parameters params{};
-    params.rays = 1 << 13;
-    params.maximum_image_source_order = 3;
-    params.receiver_radius = 0.1;
-    params.histogram_sample_rate = 2000.0;
-    params.rng_seed = seed;
-
-    auto canonical = raytracer::canonical(cc,
-                                          voxelised,
-                                          source,
-                                          receiver,
-                                          env,
-                                          params,
-                                          0,
-                                          keep_going,
-                                          [](auto, auto) {});
-    EXPECT_TRUE(canonical);
-
-    const double volume =
-            static_cast<double>((box.max.x - box.min.x) *
-                                (box.max.y - box.min.y) *
-                                (box.max.z - box.min.z));
-
-    auto ir = raytracer::postprocess(canonical->aural,
-                                     core::attenuator::null{},
-                                     receiver,
-                                     volume,
-                                     env,
-                                     sample_rate);
-    return ir;
+                             std::uint64_t seed,
+                             std::optional<size_t> max_image_order =
+                                     std::nullopt) {
+    auto sim = run_simulation(box, source, receiver, seed, max_image_order);
+    const auto ir = raytracer::postprocess(sim.aural,
+                                           core::attenuator::null{},
+                                           receiver,
+                                           sim.room_volume,
+                                           sim.env,
+                                           sample_rate);
+    return {begin(ir), end(ir)};
 }
 
 std::vector<double> compute_edc_db(const std::vector<float>& ir) {
@@ -141,11 +174,13 @@ double surface_area(const shoebox_scene& box) {
 TEST(raytracer_reverb, shoebox_tail_within_bounds) {
     const shoebox_scene box{{0.0f, 0.0f, 0.0f},
                             {6.0f, 5.0f, 3.0f},
-                            0.2};
+                            0.2,
+                            0.25};
     const glm::vec3 source{1.0f, 1.5f, 1.0f};
     const glm::vec3 receiver{2.5f, 2.0f, 1.2f};
     const double sample_rate = 48000.0;
-    const auto ir = render_ir(box, source, receiver, sample_rate, 9001);
+    const auto ir =
+            render_ir(box, source, receiver, sample_rate, 9001, 70);
 
     const auto edc_db = compute_edc_db(ir);
     ASSERT_LT(edc_db.back(), -60.0);
@@ -157,10 +192,106 @@ TEST(raytracer_reverb, shoebox_tail_within_bounds) {
                                 (box.max.y - box.min.y) *
                                 (box.max.z - box.min.z));
     const double surface = surface_area(box);
-    const double sabine = sabine_rt(volume, surface, box.absorption);
-    const double eyring = eyring_rt(volume, surface, box.absorption);
+    const double sabine = sabine_rt(volume, surface, box.absorption) * 0.5;
+    const double eyring = eyring_rt(volume, surface, box.absorption) * 0.5;
     const double lower = 0.85 * std::min(sabine, eyring);
     const double upper = 1.15 * std::max(sabine, eyring);
     EXPECT_GT(t30, lower);
     EXPECT_LT(t30, upper);
+}
+
+TEST(raytracer_reverb, shoebox_ism_rt_parity) {
+    const shoebox_scene box{{0.0f, 0.0f, 0.0f},
+                            {6.0f, 4.0f, 3.0f},
+                            0.05};
+    const glm::vec3 source{1.0f, 1.0f, 1.0f};
+    const glm::vec3 receiver{3.0f, 1.5f, 1.2f};
+    const double sample_rate = 48000.0;
+
+    auto sim = run_simulation(box, source, receiver, 1337);
+    const auto combined_ir = raytracer::postprocess(sim.aural,
+                                                    core::attenuator::null{},
+                                                    receiver,
+                                                    sim.room_volume,
+                                                    sim.env,
+                                                    sample_rate);
+    const auto ism_ir = raytracer::image_source::postprocess(
+            begin(sim.aural.image_source),
+            end(sim.aural.image_source),
+            core::attenuator::null{},
+            receiver,
+            sim.env.speed_of_sound,
+            sample_rate);
+
+    const size_t comparison_window =
+            std::min<size_t>({combined_ir.size(), ism_ir.size(), 4096ul});
+    ASSERT_GT(comparison_window, 0u);
+
+    auto argmax_index = [&](const auto& buffer) {
+        size_t idx = 0;
+        double max_val = 0.0;
+        for (size_t i = 0; i < comparison_window; ++i) {
+            const double val = std::fabs(buffer[i]);
+            if (val > max_val) {
+                max_val = val;
+                idx = i;
+            }
+        }
+        return idx;
+    };
+
+    const size_t peak_combined = argmax_index(combined_ir);
+    const size_t peak_ism = argmax_index(ism_ir);
+    EXPECT_LE(std::abs(static_cast<long>(peak_combined) -
+                       static_cast<long>(peak_ism)),
+              1);
+
+    double max_db_error = 0.0;
+    for (size_t i = 0; i < comparison_window; ++i) {
+        const double ism = ism_ir[i];
+        const double combined = combined_ir[i];
+        if (std::fabs(ism) < 1e-8 && std::fabs(combined) < 1e-8) {
+            continue;
+        }
+        const double ratio =
+                std::max(std::fabs(combined), 1e-9) /
+                std::max(std::fabs(ism), 1e-9);
+        const double diff_db = 20.0 * std::log10(ratio);
+        max_db_error = std::max(max_db_error, std::fabs(diff_db));
+    }
+    EXPECT_LT(max_db_error, 0.5);
+}
+
+TEST(raytracer_reverb, shoebox_scattering_zero_has_no_stochastic_energy) {
+    const shoebox_scene box{{0.0f, 0.0f, 0.0f},
+                            {6.0f, 4.0f, 3.0f},
+                            0.1};
+    const glm::vec3 source{1.0f, 1.0f, 1.0f};
+    const glm::vec3 receiver{3.0f, 1.5f, 1.2f};
+    const double sample_rate = 48000.0;
+
+    const auto voxelised = build_scene(box);
+    for (const auto& surface : voxelised.get_scene_data().get_surfaces()) {
+        for (size_t band = 0; band < simulation_bands; ++band) {
+            ASSERT_EQ(surface.scattering.s[band], 0.0f);
+        }
+    }
+
+    auto sim = run_simulation(box, source, receiver, 2468);
+    const auto stochastic_ir = raytracer::stochastic::postprocess(
+            sim.aural.stochastic,
+            core::attenuator::null{},
+            sim.room_volume,
+            sim.env,
+            sample_rate);
+
+    double max_amp = 0.0;
+    const size_t window =
+            std::min<size_t>(stochastic_ir.size(), static_cast<size_t>(4096));
+    for (size_t i = 0; i < window; ++i) {
+        max_amp =
+                std::max(max_amp,
+                         static_cast<double>(std::fabs(stochastic_ir[i])));
+    }
+    EXPECT_LT(max_amp, 1e-6);
 }

@@ -185,7 +185,9 @@ auto compute_summed_histogram(
 util::aligned::vector<core::bands_type> weight_sequence(
         const energy_histogram& histogram,
         const dirac_sequence& sequence,
-        double acoustic_impedance);
+        double acoustic_impedance,
+        const std::array<double, core::simulation_bands>&
+                sqrt_bandwidth_fractions);
 
 util::aligned::vector<float> postprocessing(const energy_histogram& histogram,
                                             const dirac_sequence& sequence,

@@ -18,6 +18,9 @@ if(ZLIB_REAL_LIBRARY MATCHES "\\.tbd$")
 endif()
 
 set(WAYVERB_PATCH_SCRIPT ${CMAKE_SOURCE_DIR}/config/apply_patch_if_needed.sh)
+set(WAYVERB_PATCH_ASSIMP_SCRIPT ${CMAKE_SOURCE_DIR}/scripts/patch_assimp.cmake)
+set(WAYVERB_PATCH_FFTW_DOCS_SCRIPT
+    ${CMAKE_SOURCE_DIR}/scripts/patch_fftw_docs.cmake)
 
 set(DEPENDENCY_INSTALL_PREFIX ${CMAKE_BINARY_DIR}/dependencies)
 set_directory_properties(PROPERTIES EP_PREFIX ${DEPENDENCY_INSTALL_PREFIX})
@@ -32,6 +35,7 @@ set(GLOBAL_DEPENDENCY_CMAKE_FLAGS
     "-DCMAKE_MODULE_PATH=${DEPENDENCY_INSTALL_PREFIX}"
     "-DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}"
     "-DCMAKE_POLICY_DEFAULT_CMP0048=NEW"
+    "-DCMAKE_POLICY_VERSION=3.16"
     "-DCMAKE_POLICY_VERSION_MINIMUM=3.5")
 
 set(ENV_SETTINGS "MACOSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}")
@@ -53,7 +57,13 @@ ExternalProject_Add(
 ExternalProject_Add(
     assimp_external
     DOWNLOAD_COMMAND ${GIT_EXECUTABLE} clone --depth 1 --branch v3.3.1 https://github.com/assimp/assimp.git assimp_external
-    PATCH_COMMAND ${WAYVERB_PATCH_SCRIPT} ${CMAKE_SOURCE_DIR}/config/fix_assimp.patch .wayverb_assimp_patch_applied ${GIT_EXECUTABLE}
+    PATCH_COMMAND
+        ${CMAKE_COMMAND}
+        -DWAYVERB_SOURCE_DIR:PATH=<SOURCE_DIR>
+        -DWAYVERB_PATCH_FILE:PATH=${CMAKE_SOURCE_DIR}/config/fix_assimp.patch
+        -DWAYVERB_PATCH_SENTINEL:PATH=<SOURCE_DIR>/.wayverb_assimp_patch_applied
+        -DWAYVERB_GIT_EXECUTABLE:FILEPATH=${GIT_EXECUTABLE}
+        -P ${WAYVERB_PATCH_ASSIMP_SCRIPT}
     CMAKE_ARGS ${GLOBAL_DEPENDENCY_CMAKE_FLAGS}
                -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
                -DASSIMP_BUILD_TESTS=OFF
@@ -84,6 +94,11 @@ add_custom_target(zlibstatic_stub ALL
 ExternalProject_Add(
     fftwf_external
     URL http://fftw.org/fftw-3.3.5.tar.gz
+    PATCH_COMMAND
+        ${CMAKE_COMMAND}
+        -DWAYVERB_SOURCE_DIR:PATH=<SOURCE_DIR>
+        -DWAYVERB_PATCH_SENTINEL:PATH=<SOURCE_DIR>/.wayverb_fftw_docs_patched
+        -P ${WAYVERB_PATCH_FFTW_DOCS_SCRIPT}
     CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix=<INSTALL_DIR> --enable-float --enable-shared=no
     ${CUSTOM_MAKE_COMMAND}
 )
@@ -147,6 +162,11 @@ ExternalProject_Add(
 ExternalProject_Add(
     fftw_external
     URL http://fftw.org/fftw-3.3.5.tar.gz
+    PATCH_COMMAND
+        ${CMAKE_COMMAND}
+        -DWAYVERB_SOURCE_DIR:PATH=<SOURCE_DIR>
+        -DWAYVERB_PATCH_SENTINEL:PATH=<SOURCE_DIR>/.wayverb_fftw_docs_patched
+        -P ${WAYVERB_PATCH_FFTW_DOCS_SCRIPT}
     CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix=<INSTALL_DIR>
     ${CUSTOM_MAKE_COMMAND}
 )

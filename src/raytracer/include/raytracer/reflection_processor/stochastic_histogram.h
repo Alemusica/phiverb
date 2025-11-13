@@ -54,7 +54,8 @@ public:
                                size_t max_image_source_order,
                                float receiver_radius,
                                float histogram_sample_rate,
-                               size_t group_items)
+                               size_t group_items,
+                               bool has_scatter)
             : finder_(cc,
                       group_items,
                       source,
@@ -65,7 +66,8 @@ public:
             , receiver_{receiver}
             , environment_{environment}
             , max_image_source_order_{max_image_source_order}
-            , histogram_{histogram_sample_rate} {}
+            , histogram_{histogram_sample_rate}
+            , has_scatter_{has_scatter} {}
 
     template <typename It>
     void process(It b,
@@ -73,6 +75,9 @@ public:
                  const core::scene_buffers& buffers,
                  size_t step,
                  size_t /*total*/) {
+        if (!has_scatter_) {
+            return;
+        }
         const auto output = finder_.process(b, e, buffers);
 
         struct intermediate_impulse final {
@@ -83,7 +88,7 @@ public:
 
         const auto intermediate = [&] {
             util::aligned::vector<intermediate_impulse> ret;
-            ret.reserve(output.stochastic.size() + output.specular.size());
+            ret.reserve(output.stochastic.size());
 
             const auto push_vector = [&](const auto& vec) {
                 for (const auto& impulse : vec) {
@@ -96,10 +101,6 @@ public:
             };
 
             push_vector(output.stochastic);
-            if (max_image_source_order_ <= step) {
-                push_vector(output.specular);
-            }
-
             return ret;
         }();
 
@@ -118,6 +119,7 @@ private:
     core::environment environment_;
     size_t max_image_source_order_;
     Histogram histogram_;
+    bool has_scatter_;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -132,7 +134,8 @@ public:
                          size_t total_rays,
                          size_t max_image_source_order,
                          float receiver_radius,
-                         float histogram_sample_rate)
+                         float histogram_sample_rate,
+                         bool has_scatter)
             : cc_{cc}
             , source_{source}
             , receiver_{receiver}
@@ -141,7 +144,8 @@ public:
             , max_image_source_order_{max_image_source_order}
             , receiver_radius_{receiver_radius}
             , histogram_sample_rate_{histogram_sample_rate}
-            , histogram_{histogram_sample_rate} {}
+            , histogram_{histogram_sample_rate}
+            , has_scatter_{has_scatter} {}
 
     stochastic_group_processor<Histogram> get_group_processor(
             size_t num_directions) const {
@@ -153,10 +157,14 @@ public:
                 max_image_source_order_,
                 receiver_radius_,
                 histogram_sample_rate_,
-                num_directions};
+                num_directions,
+                has_scatter_};
     }
 
     void accumulate(const stochastic_group_processor<Histogram>& processor) {
+        if (!has_scatter_) {
+            return;
+        }
         sum_histograms(histogram_, processor.get_results());
     }
 
@@ -173,6 +181,7 @@ private:
     float histogram_sample_rate_;
 
     Histogram histogram_;
+    bool has_scatter_;
 };
 
 ////////////////////////////////////////////////////////////////////////////////

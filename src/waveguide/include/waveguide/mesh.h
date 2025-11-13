@@ -9,6 +9,9 @@
 namespace wayverb {
 namespace waveguide {
 
+struct precomputed_boundary_state;
+struct precomputed_inputs;
+
 class mesh final {
 public:
     mesh(mesh_descriptor descriptor, vectors vectors);
@@ -44,6 +47,7 @@ struct voxels_and_mesh final {
     core::voxelised_scene_data<cl_float3, core::surface<core::simulation_bands>>
             voxels;
     mesh mesh;
+    std::shared_ptr<precomputed_boundary_state> precomputed;
 };
 
 /// this one should be prefered - will set up a voxelised scene with the correct
@@ -54,7 +58,8 @@ voxels_and_mesh compute_voxels_and_mesh(
         const glm::vec3& anchor,  //  probably the receiver if you want it to
                                   //  coincide with an actual node
         double sample_rate,
-        double speed_of_sound);
+        double speed_of_sound,
+        std::shared_ptr<precomputed_inputs> precomputed_inputs = {});
 
 }  // namespace waveguide
 }  // namespace wayverb

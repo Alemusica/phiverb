@@ -161,42 +161,43 @@ size_t run(const core::compute_context& cc,
     const auto node_buffer = core::load_to_buffer(
             cc.context, mesh.get_structure().get_condensed_nodes(), true);
 
-    const auto boundary_coefficients_buffer = core::load_to_buffer(
-            cc.context, mesh.get_structure().get_coefficients(), true);
-
     cl::Buffer error_flag_buffer{cc.context, CL_MEM_READ_WRITE, sizeof(cl_int)};
     cl::Buffer debug_info_buffer{
             cc.context, CL_MEM_READ_WRITE, sizeof(cl_int) * 12};
+    const auto& boundary_layout = mesh.get_structure().get_boundary_layout();
+    const auto boundary_count = boundary_layout.headers.size();
 
-    auto boundary_host_1 = get_boundary_data<1>(mesh.get_structure());
-    auto boundary_host_2 = get_boundary_data<2>(mesh.get_structure());
-    auto boundary_host_3 = get_boundary_data<3>(mesh.get_structure());
-
-    auto boundary_nodes_host_1 =
-            mesh.get_structure().get_boundary_node_indices<1>();
-    auto boundary_nodes_host_2 =
-            mesh.get_structure().get_boundary_node_indices<2>();
-    auto boundary_nodes_host_3 =
-            mesh.get_structure().get_boundary_node_indices<3>();
-
-    auto boundary_buffer_1 =
-            core::load_to_buffer(cc.context, boundary_host_1, false);
-    auto boundary_buffer_2 =
-            core::load_to_buffer(cc.context, boundary_host_2, false);
-    auto boundary_buffer_3 =
-            core::load_to_buffer(cc.context, boundary_host_3, false);
-
-    auto boundary_nodes_buffer_1 =
-            core::load_to_buffer(cc.context, boundary_nodes_host_1, true);
-    auto boundary_nodes_buffer_2 =
-            core::load_to_buffer(cc.context, boundary_nodes_host_2, true);
-    auto boundary_nodes_buffer_3 =
-            core::load_to_buffer(cc.context, boundary_nodes_host_3, true);
+    auto boundary_headers_buffer =
+            core::load_to_buffer(cc.context, boundary_layout.headers, false);
+    auto boundary_sdf_distance_buffer =
+            core::load_to_buffer(cc.context, boundary_layout.sdf_distance, false);
+    util::aligned::vector<cl_float3> boundary_normals;
+    boundary_normals.reserve(boundary_layout.sdf_normal.size());
+    for (const auto& n : boundary_layout.sdf_normal) {
+        boundary_normals.emplace_back(core::to_cl_float3{}(n));
+    }
+    auto boundary_sdf_normal_buffer =
+            core::load_to_buffer(cc.context, boundary_normals, false);
+    auto boundary_coeff_offsets_buffer =
+            core::load_to_buffer(cc.context,
+                                 boundary_layout.coeff_block_offsets,
+                                 false);
+    auto boundary_coeff_blocks_buffer =
+            core::load_to_buffer(
+                    cc.context, boundary_layout.coeff_blocks, false);
+    auto boundary_filter_memories_buffer =
+            core::load_to_buffer(cc.context,
+                                 boundary_layout.filter_memories,
+                                 true);
+    auto boundary_lookup_buffer = core::load_to_buffer(
+            cc.context, boundary_layout.node_lookup, true);
+    auto boundary_node_indices_buffer =
+            core::load_to_buffer(cc.context,
+                                 boundary_layout.node_indices,
+                                 true);
 
     auto kernel = program.get_kernel();
-    auto update_boundary_1_kernel = program.get_update_boundary_1_kernel();
-    auto update_boundary_2_kernel = program.get_update_boundary_2_kernel();
-    auto update_boundary_3_kernel = program.get_update_boundary_3_kernel();
+    auto update_boundary_kernel = program.get_update_boundary_kernel();
     const bool stage_trace_enabled = std::getenv("WAYVERB_WG_TRACE") != nullptr;
     struct stage_trace_payload {
         std::string name;
@@ -258,12 +259,11 @@ size_t run(const core::compute_context& cc,
         if (debug_node && step == 0) {
             const auto idx = *debug_node;
             auto probe_prev_kernel = program.get_probe_previous_kernel();
-            cl::Buffer probe_prev_output{
-                    cc.context, CL_MEM_WRITE_ONLY, sizeof(cl_float)};
+            cl::Buffer probe_prev_output{cc.context, CL_MEM_WRITE_ONLY, sizeof(cl_float)};
             probe_prev_kernel(cl::EnqueueArgs{queue, cl::NDRange{1}},
-                               previous,
-                               static_cast<cl_uint>(idx),
-                               probe_prev_output);
+                              previous,
+                              static_cast<cl_uint>(idx),
+                              probe_prev_output);
             queue.finish();
             const auto probed =
                     core::read_value<float>(queue, probe_prev_output, 0);
@@ -276,264 +276,36 @@ size_t run(const core::compute_context& cc,
             const auto current_val = core::read_value<float>(queue, current, idx);
             const auto previous_val = core::read_value<float>(queue, previous, idx);
             const auto boundary_type_value = nodes_host[idx].boundary_type;
-            const auto boundary_index = nodes_host[idx].boundary_index;
-            const int boundary_faces = __builtin_popcount(
-                    static_cast<unsigned int>(
-                            boundary_type_value & ~id_inside));
             std::cerr << "[waveguide] DEBUG pre-step node " << idx
                       << " locator(" << locator.x << ", " << locator.y
                       << ", " << locator.z << ")"
                       << " current=" << current_val
                       << " previous=" << previous_val
                       << " boundary_type=" << boundary_type_value
-                      << " boundary_index=" << boundary_index
                       << " neighbors=[" << neighbors[0] << ", "
                       << neighbors[1] << ", " << neighbors[2] << ", "
                       << neighbors[3] << ", " << neighbors[4] << ", "
                       << neighbors[5] << "]\n";
-            std::cout << "  boundary_index=" << boundary_index
-                      << " popcount(excl inside)=" << boundary_faces << '\n';
-            std::cout << "  boundary_data sizes: b1=" << boundary_host_1.size()
-                      << " b2=" << boundary_host_2.size()
-                      << " b3=" << boundary_host_3.size() << '\n';
-            if (boundary_faces == 3 && boundary_index < boundary_host_3.size()) {
-                const auto& tri = boundary_host_3[boundary_index];
-                using tri_type = std::decay_t<decltype(tri)>;
-                for (size_t i = 0; i < tri_type::DIMENSIONS; ++i) {
-                    const auto& bd = tri.array[i];
-                    std::cout << "    tri[" << i
-                              << "] coeff_index=" << bd.coefficient_index
-                              << " memory[0]=" << bd.filter_memory.array[0]
-                              << " memory[1]=" << bd.filter_memory.array[1]
-                              << '\n';
-                    if (bd.coefficient_index <
-                        mesh.get_structure().get_coefficients().size()) {
-                        const auto& coeff =
-                                mesh.get_structure().get_coefficients()
-                                        [bd.coefficient_index];
-                        std::cout << "      coeff a0=" << coeff.a[0]
-                                  << " b0=" << coeff.b[0] << '\n';
-                    } else {
-                        std::cout << "      coeff index out of range (size="
-                                  << mesh.get_structure()
-                                             .get_coefficients()
-                                             .size()
-                                  << ")\n";
-                    }
-                }
+            const auto layout_index =
+                    idx < boundary_layout.node_lookup.size()
+                            ? boundary_layout.node_lookup[idx]
+                            : std::numeric_limits<uint32_t>::max();
+            if (layout_index != std::numeric_limits<uint32_t>::max()) {
+                const auto& header = boundary_layout.headers[layout_index];
+                const auto normal = boundary_layout.sdf_normal[layout_index];
+                std::cout << "  boundary_layout idx=" << layout_index
+                          << " guard=0x" << std::hex << header.guard << std::dec
+                          << " dif=0x" << std::hex << header.dif << std::dec
+                          << " material=" << header.material_index << '\n';
+                std::cout << "  sdf_distance="
+                          << boundary_layout.sdf_distance[layout_index]
+                          << " normal=(" << normal.x << ", " << normal.y
+                          << ", " << normal.z << ")\n";
+            } else {
+                std::cout << "  node not registered in boundary layout\n";
             }
-            if (boundary_faces == 2 && boundary_index < boundary_host_2.size()) {
-                const auto& edge = boundary_host_2[boundary_index];
-                using edge_type = std::decay_t<decltype(edge)>;
-                for (size_t i = 0; i < edge_type::DIMENSIONS; ++i) {
-                    const auto& bd = edge.array[i];
-                    std::cout << "    edge[" << i
-                              << "] coeff_index=" << bd.coefficient_index
-                              << " memory[0]=" << bd.filter_memory.array[0]
-                              << " memory[1]=" << bd.filter_memory.array[1]
-                              << '\n';
-                    if (bd.coefficient_index <
-                        mesh.get_structure().get_coefficients().size()) {
-                        const auto& coeff =
-                                mesh.get_structure().get_coefficients()
-                                        [bd.coefficient_index];
-                        std::cout << "      coeff a0=" << coeff.a[0]
-                                  << " b0=" << coeff.b[0] << '\n';
-                    }
-                }
-            }
-            if (boundary_faces == 2 && boundary_index < boundary_host_2.size()) {
-                const auto& edge = boundary_host_2[boundary_index];
-                using edge_type = std::decay_t<decltype(edge)>;
-                for (size_t i = 0; i < edge_type::DIMENSIONS; ++i) {
-                    const auto& bd = edge.array[i];
-                    std::cout << "    edge[" << i
-                              << "] coeff_index=" << bd.coefficient_index
-                              << " memory[0]=" << bd.filter_memory.array[0]
-                              << " memory[1]=" << bd.filter_memory.array[1]
-                              << '\n';
-                    if (bd.coefficient_index <
-                        mesh.get_structure().get_coefficients().size()) {
-                        const auto& coeff =
-                                mesh.get_structure().get_coefficients()
-                                        [bd.coefficient_index];
-                        std::cout << "      coeff a0=" << coeff.a[0]
-                                  << " b0=" << coeff.b[0] << '\n';
-                    }
-                }
-            }
-            for (auto neighbor : neighbors) {
-                if (neighbor != mesh_descriptor::no_neighbor) {
-                    const auto neighbor_val =
-                            core::read_value<float>(queue, current, neighbor);
-                    std::cerr << "  neighbor " << neighbor
-                              << " current=" << neighbor_val << '\n';
-                }
-            }
-
-            const float courant_sq = 1.0f / 3.0f;
-            const int boundary_count =
-                    __builtin_popcount(static_cast<unsigned int>(
-                            boundary_type_value & ~id_inside));
-            const auto neighbor_for_port = [&](int port) -> cl_uint {
-                switch (port) {
-                    case 0: return neighbors[0];
-                    case 1: return neighbors[1];
-                    case 2: return neighbors[2];
-                    case 3: return neighbors[3];
-                    case 4: return neighbors[4];
-                    case 5: return neighbors[5];
-                    default: return mesh_descriptor::no_neighbor;
-                }
-            };
-
-            const auto read_current = [&](cl_uint index_val) -> float {
-                if (index_val == mesh_descriptor::no_neighbor) { return 0.0f; }
-                return core::read_value<float>(queue, current, index_val);
-            };
-
-            auto get_inner_dirs = [&](int bt) -> std::array<int, 2> {
-                switch (bt) {
-                    case id_nx | id_ny: return {0, 2};
-                    case id_nx | id_py: return {0, 3};
-                    case id_px | id_ny: return {1, 2};
-                    case id_px | id_py: return {1, 3};
-                    case id_nx | id_nz: return {0, 4};
-                    case id_nx | id_pz: return {0, 5};
-                    case id_px | id_nz: return {1, 4};
-                    case id_px | id_pz: return {1, 5};
-                    case id_ny | id_nz: return {2, 4};
-                    case id_ny | id_pz: return {2, 5};
-                    case id_py | id_nz: return {3, 4};
-                    case id_py | id_pz: return {3, 5};
-                    default: return {-1, -1};
-                }
-            };
-
-            auto get_surrounding_dirs = [&](const std::array<int, 2>& ind) {
-                std::array<int, 2> result{0, 0};
-                const bool has_x = (ind[0] == 0 || ind[0] == 1 || ind[1] == 0 || ind[1] == 1);
-                const bool has_y = (ind[0] == 2 || ind[0] == 3 || ind[1] == 2 || ind[1] == 3);
-                if (has_x && has_y) {
-                    result = {4, 5};
-                } else if (has_x) {
-                    result = {2, 3};
-                } else {
-                    result = {0, 1};
-                }
-                return result;
-            };
-
-            const auto inner_dirs = get_inner_dirs(boundary_type_value & ~id_inside);
-            auto surrounding_dirs = get_surrounding_dirs(inner_dirs);
-
-            float sum_inner = 0.0f;
-            for (int dir : inner_dirs) {
-                if (dir >= 0) {
-                    sum_inner += 2.0f * read_current(neighbor_for_port(dir));
-                }
-            }
-
-            float sum_surround = 0.0f;
-            for (int dir : surrounding_dirs) {
-                sum_surround += read_current(neighbor_for_port(dir));
-            }
-
-            const float current_surrounding_weighting =
-                    courant_sq * (sum_inner + sum_surround);
-
-            const auto dump_boundary = [&](int count) {
-                const auto log_entry = [&](const auto& boundary_host,
-                                           const char* label) {
-                    if (boundary_index >= boundary_host.size()) {
-                        std::cerr << "  " << label
-                                  << " index out of range; size="
-                                  << boundary_host.size() << "\n";
-                        return;
-                    }
-                    const auto& arr = boundary_host[boundary_index];
-                    for (int entry = 0; entry < count; ++entry) {
-                        const auto coeff_index = arr.array[entry].coefficient_index;
-                        float a0 = std::numeric_limits<float>::quiet_NaN();
-                        float b0 = std::numeric_limits<float>::quiet_NaN();
-                        if (coeff_index < coefficients_host.size()) {
-                            a0 = static_cast<float>(coefficients_host[coeff_index].a[0]);
-                            b0 = static_cast<float>(coefficients_host[coeff_index].b[0]);
-                        }
-                        const float mem0 =
-                                static_cast<float>(arr.array[entry].filter_memory.array[0]);
-                        std::cerr << "  " << label << "[" << entry
-                                  << "] coeff_index=" << coeff_index
-                                  << " a0=" << a0 << " b0=" << b0
-                                  << " mem0=" << mem0 << "\n";
-                    }
-                };
-                switch (count) {
-                    case 1: log_entry(boundary_host_1, "b1"); break;
-                    case 2: log_entry(boundary_host_2, "b2"); break;
-                    case 3: log_entry(boundary_host_3, "b3"); break;
-                    default:
-                        std::cerr << "  boundary_count=" << count
-                                  << " (no boundary data vector)\n";
-                        break;
-                }
-            };
-            dump_boundary(boundary_count);
-
-            float filter_weighting = 0.0f;
-            if (!(boundary_type_value & id_inside)) {
-                auto accumulate_filter_weighting = [&](const auto& arr) {
-                    for (const auto& bd : arr.array) {
-                        const auto ci = bd.coefficient_index;
-                        if (ci < coefficients_host.size()) {
-                            const float b0 = static_cast<float>(coefficients_host[ci].b[0]);
-                            const float mem0 = static_cast<float>(bd.filter_memory.array[0]);
-                            if (b0 != 0.0f) {
-                                filter_weighting += mem0 / b0;
-                            }
-                        }
-                    }
-                };
-
-                if (boundary_count == 1 && boundary_index < boundary_host_1.size()) {
-                    accumulate_filter_weighting(boundary_host_1[boundary_index]);
-                } else if (boundary_count == 2 && boundary_index < boundary_host_2.size()) {
-                    accumulate_filter_weighting(boundary_host_2[boundary_index]);
-                } else if (boundary_count == 3 && boundary_index < boundary_host_3.size()) {
-                    accumulate_filter_weighting(boundary_host_3[boundary_index]);
-                }
-            }
-
-            filter_weighting *= courant_sq;
-
-            float coeff_weighting = 0.0f;
-            if (boundary_count == 2 && boundary_index < boundary_host_2.size()) {
-                const auto& arr = boundary_host_2[boundary_index];
-                for (const auto& bd : arr.array) {
-                    const auto ci = bd.coefficient_index;
-                    if (ci < coefficients_host.size()) {
-                        const float a0 = static_cast<float>(coefficients_host[ci].a[0]);
-                        const float b0 = static_cast<float>(coefficients_host[ci].b[0]);
-                        if (b0 != 0.0f) {
-                            coeff_weighting += a0 / b0;
-                        }
-                    }
-                }
-            }
-
-            const float prev_weighting = (coeff_weighting - 1.0f) * previous_val;
-            const float numerator = current_surrounding_weighting + filter_weighting + prev_weighting;
-            const float denominator = 1.0f + coeff_weighting;
-            float approx_ret = numerator / denominator;
-
-            std::cerr << "  current_surrounding_weighting=" << current_surrounding_weighting
-                      << " filter_weighting=" << filter_weighting
-                      << " coeff_weighting=" << coeff_weighting
-                      << " prev_weighting=" << prev_weighting
-                      << " numerator=" << numerator
-                      << " denominator=" << denominator
-                      << " approx_ret=" << approx_ret << '\n';
         }
+
 
         //  set flag state to successful
         core::write_value(queue, error_flag_buffer, 0, id_success);
@@ -556,10 +328,13 @@ size_t run(const core::compute_context& cc,
                 current,
                 node_buffer,
                 mesh.get_descriptor().dimensions,
-                boundary_buffer_1,
-                boundary_buffer_2,
-                boundary_buffer_3,
-                boundary_coefficients_buffer,
+                boundary_headers_buffer,
+                boundary_sdf_distance_buffer,
+                boundary_sdf_normal_buffer,
+                boundary_coeff_offsets_buffer,
+                boundary_coeff_blocks_buffer,
+                boundary_filter_memories_buffer,
+                boundary_lookup_buffer,
                 error_flag_buffer,
                 debug_info_buffer,
                 num_prev,
@@ -587,111 +362,35 @@ size_t run(const core::compute_context& cc,
                           << "] error_flag=" << error_flag << '\n';
                 dump_trace(stage);
                 const auto log_non_finite = [&](const char* label) {
-                const auto report = [&](const char* which,
-                                        const cl::Buffer& buffer) {
-                    auto values =
-                            core::read_from_buffer<float>(queue, buffer);
-                    const auto it = std::find_if(
-                            values.begin(), values.end(), [](float v) {
-                                return !std::isfinite(v);
-                            });
-                    if (it != values.end()) {
-                        const auto idx =
-                                static_cast<size_t>(
-                                        std::distance(values.begin(), it));
-                        const auto boundary_type =
-                                idx < nodes_host.size()
-                                        ? nodes_host[idx].boundary_type
-                                        : -1;
-                        int boundary_count = boundary_type >= 0
-                                                     ? __builtin_popcount(
-                                                               static_cast<unsigned int>(
-                                                                       boundary_type))
-                                                     : 0;
-                        const auto boundary_index =
-                                idx < nodes_host.size()
-                                        ? nodes_host[idx].boundary_index
-                                        : 0u;
-
-                        auto dump_boundary = [&](const char* label_prefix,
-                                                  const auto& boundary_host) {
-                            std::string result;
-                            if (boundary_index < boundary_host.size()) {
-                                const auto& arr = boundary_host[boundary_index];
-                                using array_type = std::decay_t<decltype(arr)>;
-                                for (size_t i = 0; i < array_type::DIMENSIONS; ++i) {
-                                    const auto coeff_index = arr.array[i].coefficient_index;
-                                    float b0 = std::numeric_limits<float>::quiet_NaN();
-                                    float a0 = std::numeric_limits<float>::quiet_NaN();
-                                    float mem0 = std::numeric_limits<float>::quiet_NaN();
-                                    if (coeff_index < coefficients_host.size()) {
-                                        b0 = static_cast<float>(
-                                                coefficients_host[coeff_index].b[0]);
-                                        a0 = static_cast<float>(
-                                                coefficients_host[coeff_index].a[0]);
-                                    }
-                                    mem0 = static_cast<float>(
-                                            arr.array[i].filter_memory.array[0]);
-                                    if (!result.empty()) {
-                                        result += ", ";
-                                    }
-                                    result += util::build_string(
-                                            label_prefix,
-                                            "[", i, ": coeff=", coeff_index,
-                                            ", b0=", b0,
-                                            ", a0=", a0,
-                                            ", mem0=", mem0,
-                                            "]");
-                                }
-                            }
-                            if (result.empty()) {
-                                result = util::build_string(label_prefix, "[none]");
-                            }
-                            return result;
-                        };
-
-                        std::string boundary_details;
-                        switch (boundary_count) {
-                            case 1:
-                                boundary_details =
-                                        dump_boundary("b1", boundary_host_1);
-                                break;
-                            case 2:
-                                boundary_details =
-                                        dump_boundary("b2", boundary_host_2);
-                                break;
-                            case 3:
-                                boundary_details =
-                                        dump_boundary("b3", boundary_host_3);
-                                break;
-                            default: boundary_details = "b[none]";
+                    const auto report = [&](const char* which,
+                                            const cl::Buffer& buffer) {
+                        auto values =
+                                core::read_from_buffer<float>(queue, buffer);
+                        const auto it = std::find_if(
+                                values.begin(), values.end(), [](float v) {
+                                    return !std::isfinite(v);
+                                });
+                        if (it != values.end()) {
+                            const auto idx = static_cast<size_t>(
+                                    std::distance(values.begin(), it));
+                            const auto boundary_type =
+                                    idx < nodes_host.size()
+                                            ? nodes_host[idx].boundary_type
+                                            : -1;
+                            const auto layout_index =
+                                    idx < boundary_layout.node_lookup.size()
+                                            ? boundary_layout.node_lookup[idx]
+                                            : std::numeric_limits<uint32_t>::max();
+                            std::cerr << "[waveguide] " << label
+                                      << " (" << which << ") non-finite at node "
+                                      << idx << " boundary_type=" << boundary_type
+                                      << " layout_index=" << layout_index << '\n';
                         }
-                        const auto locator =
-                                waveguide::compute_locator(
-                                        mesh.get_descriptor(), idx);
-                        const auto neighbors =
-                                waveguide::compute_neighbors(
-                                        mesh.get_descriptor(), idx);
-                        std::cerr << "[waveguide] " << label << " (" << which
-                                  << ") at step " << step << ", node " << idx
-                                  << ", boundary_type " << boundary_type
-                                  << " (count=" << boundary_count << ")"
-                                  << ", " << boundary_details
-                                  << ", locator (" << locator.x << ", "
-                                  << locator.y << ", " << locator.z << ")"
-                                  << ", boundary_index " << boundary_index
-                                  << ", neighbors [" << neighbors[0] << ", "
-                                  << neighbors[1] << ", " << neighbors[2]
-                                  << ", " << neighbors[3] << ", "
-                                  << neighbors[4] << ", " << neighbors[5]
-                                  << "]"
-                                  << ", value " << *it << '\n';
-                    }
+                    };
+                    report("current", current);
+                    report("previous", previous);
                 };
-
-                report("current", current);
-                        report("previous", previous);
-            };
+;
 
             if (error_flag & id_inf_error) {
                 log_non_finite("INF");
@@ -776,64 +475,48 @@ size_t run(const core::compute_context& cc,
 
         check_error("pressure");
 
-        const auto run_boundary_update =
-                [&](auto& functor,
-                    auto& boundary_buffer,
-                    const cl::Buffer& node_map,
-                    size_t count,
-                    const char* stage_name) {
-                    if (count == 0) {
-                        return;
-                    }
-                    core::write_value(queue, error_flag_buffer, 0, id_success);
-                    const cl_int pattern = static_cast<cl_int>(0xCDCDCDCD);
-                    queue.enqueueFillBuffer(
-                            debug_info_buffer,
-                            pattern,
-                            0,
-                            sizeof(cl_int) * 12);
-                    cl::Event stage_event =
-                            functor(cl::EnqueueArgs(queue, cl::NDRange(count)),
-                                    previous_history,
-                                    current,
-                                    previous,
-                                    node_buffer,
-                                    mesh.get_descriptor().dimensions,
-                                    node_map,
-                                    boundary_buffer,
-                                    boundary_coefficients_buffer,
-                                    error_flag_buffer,
-                                    debug_info_buffer,
-                                    trace_target,
-                                    trace_buffer,
-                                    trace_head_buffer,
-                                    trace_capacity_uint,
-                                    trace_enabled_flag,
-                                    static_cast<cl_uint>(step));
-                    attach_trace(stage_name, count, stage_event);
-                    if (stage_event() != nullptr) {
-                        stage_event.wait();
-                    } else {
-                        queue.finish();
-                    }
-                    check_error(stage_name);
-                };
+        const auto run_boundary_update = [&](const char* stage_name) {
+            if (boundary_count == 0) {
+                return;
+            }
+            core::write_value(queue, error_flag_buffer, 0, id_success);
+            const cl_int pattern = static_cast<cl_int>(0xCDCDCDCD);
+            queue.enqueueFillBuffer(
+                    debug_info_buffer, pattern, 0, sizeof(cl_int) * 12);
+            cl::Event stage_event =
+                    update_boundary_kernel(cl::EnqueueArgs(
+                                                   queue,
+                                                   cl::NDRange(boundary_count)),
+                                           previous_history,
+                                           current,
+                                           previous,
+                                           node_buffer,
+                                           mesh.get_descriptor().dimensions,
+                                           boundary_node_indices_buffer,
+                                           boundary_headers_buffer,
+                                           boundary_coeff_offsets_buffer,
+                                           boundary_coeff_blocks_buffer,
+                                           boundary_filter_memories_buffer,
+                                           boundary_lookup_buffer,
+                                           error_flag_buffer,
+                                           debug_info_buffer,
+                                           trace_target,
+                                           trace_buffer,
+                                           trace_head_buffer,
+                                           trace_capacity_uint,
+                                           trace_enabled_flag,
+                                           static_cast<cl_uint>(step),
+                                           static_cast<cl_uint>(boundary_count));
+            attach_trace(stage_name, boundary_count, stage_event);
+            if (stage_event() != nullptr) {
+                stage_event.wait();
+            } else {
+                queue.finish();
+            }
+            check_error(stage_name);
+        };
 
-        run_boundary_update(update_boundary_3_kernel,
-                            boundary_buffer_3,
-                            boundary_nodes_buffer_3,
-                            boundary_host_3.size(),
-                            "boundary_3");
-        run_boundary_update(update_boundary_2_kernel,
-                            boundary_buffer_2,
-                            boundary_nodes_buffer_2,
-                            boundary_host_2.size(),
-                            "boundary_2");
-        run_boundary_update(update_boundary_1_kernel,
-                            boundary_buffer_1,
-                            boundary_nodes_buffer_1,
-                            boundary_host_1.size(),
-                            "boundary_1");
+        run_boundary_update("boundary");
 
         post(queue, current, step);
 
