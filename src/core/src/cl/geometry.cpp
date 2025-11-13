@@ -68,7 +68,13 @@ float3 triangle_verts_normal(triangle_verts t);
 float3 triangle_verts_normal(triangle_verts t) {
     const float3 e0 = t.v1 - t.v0;
     const float3 e1 = t.v2 - t.v0;
-    return normalize(cross(e0, e1));
+    const float3 n = cross(e0, e1);
+    const float len_sq = dot(n, n);
+    // Protect against degenerate triangles (zero or near-zero area)
+    if (len_sq < FLT_MIN) {
+        return (float3)(0.0f, 1.0f, 0.0f);  // Return arbitrary up vector
+    }
+    return n * rsqrt(len_sq);
 }
 
 float3 triangle_normal(triangle triangle, const global float3 * vertices);
@@ -149,13 +155,26 @@ intersection ray_triangle_group_intersection(ray r,
 
 float3 get_direction(float3 from, float3 to);
 float3 get_direction(float3 from, float3 to) {
-    return normalize(to - from);
+    const float3 diff = to - from;
+    const float len_sq = dot(diff, diff);
+    // Protect against zero-length direction vectors
+    if (len_sq < FLT_MIN) {
+        return (float3)(0.0f, 0.0f, 1.0f);  // Return arbitrary forward vector
+    }
+    return diff * rsqrt(len_sq);
 }
 
 bool line_segment_sphere_intersection(float3 p1, float3 p2, float3 sc, float r);
 bool line_segment_sphere_intersection(float3 p1, float3 p2, float3 sc, float r) {
     const float3 diff = p2 - p1;
-    const float u = dot(sc - p1, diff) / dot(diff, diff);
+    const float diff_len_sq = dot(diff, diff);
+    // Protect against zero-length line segments
+    if (diff_len_sq < FLT_MIN) {
+        // Line segment is a point, check if point is in sphere
+        const float3 to_center = sc - p1;
+        return dot(to_center, to_center) < r * r;
+    }
+    const float u = dot(sc - p1, diff) / diff_len_sq;
     if (u < 0 || 1 < u) {
         return false;
     }

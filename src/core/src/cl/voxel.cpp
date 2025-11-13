@@ -242,7 +242,11 @@ bool voxel_point_intersection(float3 begin,
                               uint avoid_intersecting_with) {
     const float3 begin_to_point = point - begin;
     const float mag = length(begin_to_point);
-    const float3 direction = normalize(begin_to_point);
+    // Protect against zero-length direction (begin == point)
+    if (mag < FLT_MIN) {
+        return true;  // Point coincides with begin, consider no intersection
+    }
+    const float3 direction = begin_to_point / mag;
 
     const ray to_point = {begin, direction};
 

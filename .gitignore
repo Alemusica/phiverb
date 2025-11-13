@@ -64,3 +64,4 @@ _work/
 __pycache__/
 *.pyc
 *.pyo
+wayverb/Source/build_id_override.h
