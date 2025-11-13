@@ -31,8 +31,6 @@ endif()
 
 add_library(core STATIC ${sources} ${public_headers} ${private_headers} ${outfile})
 
-add_dependencies(core glm_external opencl_cpp_external cereal_external)
-
 target_include_directories(core
     PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

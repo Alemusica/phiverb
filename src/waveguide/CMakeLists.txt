@@ -12,8 +12,6 @@ file(GLOB_RECURSE private_headers "src/*.h")
 
 add_library(waveguide STATIC ${sources} ${public_headers} ${private_headers} ${outfile})
 
-add_dependencies(waveguide glm_external)
-
 target_include_directories(waveguide
     PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

@@ -10,6 +10,7 @@
      - `detect`: Determines which components changed (RT/DWM/Metal)
      - `rt-tests`: Runs raytracer tests if RT code changed
      - `dwm-tests`: Runs waveguide tests if DWM code changed
+     - `regression-test`: Runs apple_silicon_regression on all PRs to detect NaN/Inf/silence
      - `metal-smoke`: Tests Metal backend on self-hosted macOS ARM64 runner
    - Status: ✅ Essential - keeps
 
