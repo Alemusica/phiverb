@@ -1,1 +1,0 @@
-"""Fast multipole method functionality."""
