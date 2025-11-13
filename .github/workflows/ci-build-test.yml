@@ -96,6 +96,31 @@ jobs:
           ctest --test-dir build --output-on-failure
           python3 scripts/qa/run_validation_suite.py --cli build/bin/wayverb_cli --scenes tests/scenes
 
+  regression-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - name: Tooling
+        run: |
+          sudo apt-get update && sudo apt-get install -y ninja-build opencl-headers ocl-icd-opencl-dev
+          python3 -m pip install --upgrade pip numpy scipy soundfile
+      - name: Configure+Build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --target apple_silicon_regression -j
+      - name: Run Regression Test
+        run: |
+          if [ -x build/bin/apple_silicon_regression ]; then
+            echo "Running regression test with default scene..."
+            build/bin/apple_silicon_regression
+          else
+            echo "ERROR: apple_silicon_regression binary not found"
+            exit 1
+          fi
+
   metal-smoke:
     needs: detect
     if: needs.detect.outputs.mtl == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
