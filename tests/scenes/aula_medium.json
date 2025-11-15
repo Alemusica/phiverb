@@ -6,6 +6,6 @@
   "alpha_bar_1k": 0.295,
   "air_m_nepers_per_m": 0.0,
   "materials": {
-    "mix": "PTB:<SOSTITUISCI>"
+    "mix": "floor - thick carpet"
   }
 }

@@ -68,7 +68,7 @@ jobs:
           cmake --build build -j
       - name: CTest (unit/regression)
         run: |
-          ctest --test-dir build --output-on-failure || true
+          ctest --test-dir build --output-on-failure
       - name: RT Parity (ISM ↔ PT, BRDF/MIS)
         run: |
           if [ -x build/bin/wayverb_cli ]; then
@@ -76,7 +76,7 @@ jobs:
             python3 scripts/qa/run_validation_suite.py --cli build/bin/wayverb_cli --scenes tests/scenes
           else
             echo "[RT] wayverb_cli non presente; eseguo solo suite QA (consultivo)."
-            python3 scripts/qa/run_validation_suite.py --cli build/bin/wayverb_cli --scenes tests/scenes || true
+            python3 scripts/qa/run_validation_suite.py --cli build/bin/wayverb_cli --scenes tests/scenes
           fi
 
   dwm-tests:
